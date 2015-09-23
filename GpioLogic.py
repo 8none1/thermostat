@@ -7,6 +7,8 @@ import RPi.GPIO as GPIO
 from RPIO import PWM
 
 GPIO.setmode(GPIO.BCM)
+#GPIO.setwarnings(False)
+
 DEBUG=True
 TESTING = False
 def log(message):
@@ -39,6 +41,7 @@ class basicRelay(object):
     self.relay_gpio = relay_gpio
     self.name = common_name
     self.enabled = True
+    print "Sometimes it gets stuck here and needs a ctrl-c to continue.  I don't know why"
     GPIO.setup(self.relay_gpio, GPIO.OUT, initial=True)
   def on(self):
     if TESTING == True:

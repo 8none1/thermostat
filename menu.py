@@ -95,10 +95,29 @@ ALL_ONSCREEN_OBJECTS = []
 wdict = []
 thermostat_relay = GpioLogic.basicRelay(17, "Thermostat")
 
+class bcolours:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+    BOLD = '\033[1m'
 
-def log(message):
+
+def log(message, col=None):
   if DEBUG:
-    print message
+    if col is not None and message is not None:
+      print col + message + bcolours.ENDC
+    elif col is None and message is not None:
+      print message
+    else:
+      print "Something happened"
+      return
+
+
 
 def exit_handler():
     log("Tidying up...")
@@ -277,8 +296,11 @@ def update_daily_weather():
     # the Pi
     global wdict
     wdict = []
-    x = METDATA.loc_forecast(weather_location, metoffer.DAILY)
-    weather = metoffer.parse_val(x)
+    try:
+        x = METDATA.loc_forecast(weather_location, metoffer.DAILY)
+        weather = metoffer.parse_val(x)
+    except:
+        return 
     # Things to care about:
     # "timestamp"[0] = datetime / timestamp[1] = period [Day|Night]
     # "Wind Speed"[0] = speed in mph
@@ -404,15 +426,19 @@ class svg_image(object):
     def update(self):
         self.svg = rsvg.Handle(data=self.dom.toxml())
         self.render()
-    def draw(self):
+    def draw(self, fast=False):
         try:
             if self.rect:
                 # I have at some previous point been on the screen, so erase that
+		#  Ohhhh.  Ok, this is what that bit does..   Not sure I need it really.
                 self.hide()
         except:  pass
         self.rect = screen.blit(self.pygame_image, (self.x, self.y))
-        pygame.display.update(self.rect)
         self.visible=True
+	if True == fast:
+		return self.rect
+	else:
+        	pygame.display.update(self.rect)
     def hide(self):
         if True == self.visible:
             global BACKGROUND_COLOUR
@@ -448,18 +474,27 @@ class PolyButton(object):
         self.clickable = True
         BUTTON_LIST.append(self)
         self.__actions = {}
-    def draw(self,draw_colour=None):
+    def draw(self,draw_colour=None, fast=False):
         if self.visible == False: return
         if draw_colour == None: draw_colour=self.colour
         self.rect = pygame.draw.polygon(screen, draw_colour, self.pointlist)
-        pygame.display.update(self.rect)
-    def hide(self):
+	if True == fast:
+	  # Idea - if we have a lot of things to update you set fast to True and rather than each object redrawing its area of the screen
+	  # it passes back the rect which needs updating.  This is then put in a list and the calling function is responsible for calling
+	  # display.update(the list of rects) which in theory is faster.
+	  return self.rect
+	else:	
+          pygame.display.update(self.rect)
+    def hide(self, fast=False):
         if True == self.visible:
             # Crude but will have to do - draw background over yourself
             global BACKGROUND_COLOUR
             self.rect = pygame.draw.polygon(screen, BACKGROUND_COLOUR, self.pointlist)
-            pygame.display.update(self.rect)
             self.visible = False
+	    if True == fast:
+	      return self.rect
+ 	    else:
+              pygame.display.update(self.rect)
     def pressed(self):
         if True == self.ispressed: return
         if self.pcol is not None:
@@ -507,12 +542,15 @@ class Rectangle(PolyButton):
         self.point4 = (size)
         #self.pointlist = [self.point1, self.point2, self.point3, self.point4]
         self.rect = pygame.Rect(self.x, self.y, size*1.3, size)
-    def draw(self, draw_colour = None):
+    def draw(self, draw_colour = None, fast=False):
         if draw_colour == None: draw_colour=self.colour
         self.colour = draw_colour
         self.rect = pygame.draw.rect(screen, draw_colour, self.rect)
-        pygame.display.update(self.rect)
         self.visible = True
+	if True == fast:
+		return self.rect
+	else:
+		pygame.display.update(self.rect)
 
         
 class TextArea:
@@ -574,10 +612,10 @@ class Bitmap(object):
             self.surface = self.surface.convert()
             self.kind = "BITMAP"
         def draw(self):
-            try:
-                if self.rect:
-                    self.hide()
-            except: pass
+            #try: # What the hell does this do?  FIXME  Maybe was intended to toggle the state. Can't remember why.  Turn this off and see what breaks.
+            #    if self.rect:
+            #        self.hide()
+            #except: pass
             self.rect = screen.blit(self.surface, (self.x, self.y))
             pygame.display.update(self.rect)
             self.visible = True
@@ -585,6 +623,19 @@ class Bitmap(object):
             rect = pygame.draw.rect(screen, BACKGROUND_COLOUR, self.rect)
             pygame.display.update(rect)
             self.visible = False
+
+class Screen(object):
+	def __init__(self, bgcol):
+		self.visible = False
+		self.objects = []
+		self.kind = "SCREEN"
+	def add(self, gfx_object):
+		self.objects.append(gfx_object)
+	def draw(self):
+		for each in self.objects:
+			each.hide()
+	def hide(self):
+		pass
 
 ################################################################################
 ############         END OF IMAGE STUFF            #############################
@@ -669,7 +720,7 @@ def update_hwchstatus():
       try:
         ch_resp = requests.get(url="http://piwarmer/get/ch")
         hw_resp = requests.get(url="http://piwarmer/get/hw")
-        break
+        #break
       except:
         log("Couldn't contact PiWarmer.  Trying again. #"+str(n)) # Need a function to handle these requests better, when a server has gone away etc, so we don't just crash
         time.sleep(3) # ugly.
