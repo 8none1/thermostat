@@ -7,10 +7,14 @@ import RPi.GPIO as GPIO
 from RPIO import PWM
 
 GPIO.setmode(GPIO.BCM)
-#GPIO.setwarnings(False)
+GPIO.setwarnings(False)
 
 DEBUG=True
 TESTING = False
+
+print "Sometimes it gets stuck here and needs a ctrl-c to continue.  I don't know why"
+    
+
 def log(message):
   if DEBUG:
     print (message)
@@ -19,8 +23,10 @@ def log(message):
 class backlight(object):
     def __init__(self, gpio):
         self.gpio = gpio
-        PWM.setup()
-        PWM.init_channel(0,10000) # 100 Hz?
+        if not PWM.is_setup():
+          PWM.setup()
+        if not PWM.is_channel_initialized(0):
+          PWM.init_channel(0,10000) # 100 Hz?
         PWM.add_channel_pulse(0,self.gpio, 0, 990)
         self.state = "full"
     def full(self):
@@ -35,13 +41,15 @@ class backlight(object):
         if self.state != "low":
             PWM.add_channel_pulse(0,self.gpio, 0, 200)
             self.state = "low"
+    def close_cleanly(self):
+        PWM.clear_channel_gpio(0,self.gpio)
+        PWM.cleanup()
  
 class basicRelay(object):
   def __init__(self, relay_gpio, common_name="Undefined Relay"):
     self.relay_gpio = relay_gpio
     self.name = common_name
     self.enabled = True
-    print "Sometimes it gets stuck here and needs a ctrl-c to continue.  I don't know why"
     GPIO.setup(self.relay_gpio, GPIO.OUT, initial=True)
   def on(self):
     if TESTING == True:
@@ -65,6 +73,8 @@ class basicRelay(object):
       self.off()
     else:
       self.on()
+  def close_cleanly(self):
+      GPIO.cleanup()
 
 
 def get_room_temp(device):

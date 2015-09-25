@@ -19,10 +19,14 @@ import re
 import signal
 import GpioLogic
 import traceback
+import datetime
+import copy
+
 
 
 DEBUG = True
 TESTING = True
+FAST_RENDERING = True
 
 #  We use the PWM code from RPIO (https://github.com/metachris/RPIO)
 #  because it has a much better PWM implentation (or at least it had
@@ -55,10 +59,15 @@ os.environ["SDL_MOUSEDEV"] = "/dev/input/touchscreen"
 os.environ["SDL_MOUSEDRV"] = "TSLIB"
 
 # Set up Pygame stuff
-pygame.init()
+#pygame.init()
+pygame.font.init()
+pygame.display.init()
+#pygame.draw.init()
+#pygame.image.init()
 pygame.mouse.set_visible(False)
-default_fontstyle = "Ubuntu-B"
-defaul_fontname = pygame.font.match_font(default_fontstyle)
+default_fontstyle = "none"
+#default_fontname = pygame.font.match_font(default_fontstyle)
+default_fontname = None
 size = width, height = 480, 320
 screen = pygame.display.set_mode(size)
 screen.fill((255,255,255))
@@ -80,6 +89,7 @@ TICK1M = USEREVENT+1
 BUTTONHIGHLIGHT = USEREVENT+2
 TICK15M = USEREVENT+3
 IDLETIMEOUT = USEREVENT+4
+TICK10SEC = USEREVENT+5
 
 # Other globals
 BUTTON_ACTION_LIST = []
@@ -92,6 +102,8 @@ BACKGROUND_COLOUR = wall_col
 HEATING = False
 HOTWATER = False
 ALL_ONSCREEN_OBJECTS = []
+WEATHER_VISIBLE = True
+CLOCK_STYLE = True
 wdict = []
 thermostat_relay = GpioLogic.basicRelay(17, "Thermostat")
 
@@ -119,11 +131,12 @@ def log(message, col=None):
 
 
 
-def exit_handler():
+def exit_handler(signal, frame):
     log("Tidying up...")
-    GPIO.cleanup()
+    backlight_control.close_cleanly()
+    thermostat_relay.close_cleanly()
     pygame.quit()
-    sys.exit()
+    sys.exit(0)
 
 def grid():
     if TESTING:
@@ -232,6 +245,7 @@ class weatherIcon(object):
         self.wtype = wtype
         self.scale = scale
         self.subscale = subscale
+        self.visible = True
         if self.period == "Day":
             self.icon = WEATHER_CODES_DAY[self.wtype][1]
             self.wdesc = WEATHER_CODES_DAY[self.wtype][0]
@@ -281,12 +295,15 @@ class weatherIcon(object):
         #     def __init__(self, filename,x,y, scale=1.0, visible=False):
         self.image = svg_image("icons/"+self.icon, 0, 0,self.scale)
     def draw(self):
+        if False == self.visible:  return
         self.image.draw()
         for each in self.subicons:
             each.draw()
     def hide(self):
         self.image.hide()
+        self.visible = False
         for each in self.subicons:
+            self.visible = False
             each.hide()            
 
 def update_daily_weather():
@@ -296,10 +313,12 @@ def update_daily_weather():
     # the Pi
     global wdict
     wdict = []
+    icon_list = []
     try:
         x = METDATA.loc_forecast(weather_location, metoffer.DAILY)
         weather = metoffer.parse_val(x)
     except:
+        print "Couldn't parse weather data."
         return 
     # Things to care about:
     # "timestamp"[0] = datetime / timestamp[1] = period [Day|Night]
@@ -318,18 +337,20 @@ def update_daily_weather():
             wdict.append(weatherIcon(each['timestamp'][1],day,each['Weather Type'][0], each['Wind Speed'][0], each['Wind Direction'][0], each['Feels Like Day Maximum Temperature'][0], each['Precipitation Probability Day'][0], each['Max UV Index'][0],1,0.3))
         elif each['timestamp'][1] == "Night":
             wdict.append(weatherIcon(each['timestamp'][1],day,each['Weather Type'][0], each['Wind Speed'][0], each['Wind Direction'][0], each['Feels Like Night Minimum Temperature'][0], each['Precipitation Probability Night'][0],0,1,0.3))
-    weather = False
+
     x = 2
     first = True
     now = time.localtime().tm_hour
-    if now > 16:
+    if now > 17:
         wdict = wdict[1:]
+
     for each in wdict[:8]:
         if first:
             first = False
             each.image = svg_image("icons/"+each.icon, 20, 50,3)
-            BUTTON_LIST.append(each.image)
-            each.image.draw()
+            #BUTTON_LIST.append(each.image)
+            #each.image.draw()
+            icon_list.append(each.image.draw(fast=FAST_RENDERING))
             each.subicons = []
             x = 5# outttext.rect.x
             y = 210# outttext.rect.top-15
@@ -348,15 +369,17 @@ def update_daily_weather():
             for thing in each.subicons:
                 thing.x = x
                 x += 55
-                thing.draw()
+                #thing.draw()
+                icon_list.append(thing.draw(fast=FAST_RENDERING))
             x = 2
         else:
             each.image.x = x
-            each.image.draw()
+            #each.image.draw()
+            icon_list.append(each.image.draw(fast=FAST_RENDERING))
             string = each.dow + ": "+str(each.temp)+u'\N{DEGREE SIGN}'
             each.text = TextArea(each.image.rect.centerx,each.image.rect.bottom+5,19,black,BACKGROUND_COLOUR,string)        
             each.subicons.append(each.text)
-            BUTTON_LIST.append(each.image)
+            #BUTTON_LIST.append(each.image)
             n = x
             for thing in each.subicons:
                 if thing.kind == "TEXT": pass
@@ -364,14 +387,23 @@ def update_daily_weather():
                     thing.x = n
                     thing.y = each.image.y + 65
                     n += 15
-                thing.draw()
+                #thing.draw()
+                icon_list.append(thing.draw(fast=FAST_RENDERING))
             # class TextArea:
             #init__(self, x,y,size,colour,bgcol=None,string="",font=default_fontstyle):
             x += 60
-    outtemp = get_outside_temp()
-    outttext = TextArea(115, 230, 70, black, BACKGROUND_COLOUR, str(outtemp)+u'\N{DEGREE SIGN}')
-    outttext.draw()
 
+    outtemp = get_outside_temp()
+    #outttext = TextArea(115, 230, 70, black, BACKGROUND_COLOUR, str(outtemp)+u'\N{DEGREE SIGN}')
+    outttext = TextArea(115, 230, 70, black, None, str(outtemp)+u'\N{DEGREE SIGN}')    
+    if True == FAST_RENDERING:
+        icon_list.append(outttext.draw(fast=FAST_RENDERING))      
+    else:
+        outttext.draw()
+
+    if True == FAST_RENDERING:
+      pygame.display.update(icon_list)
+    
 ################################################################################
 ##                             END  WEATHER STUFF                             ##
 ################################################################################
@@ -383,16 +415,22 @@ def update_daily_weather():
 ################################################################################
 
 class svg_image(object):
-    def __init__(self, filename,x,y, scale=1.0, visible=False):
+    def __init__(self, filename,x,y, scale=1.0, visible=False, clickable=False):
         self.x = x
         self.y = y
         self.filename = filename
         self.scale = scale
         self.visible=visible
+        self.clickable = clickable
         self.dom = minidom.parse(filename)
         self.index=0
         self.kind = "SVG"
-        self.clickable = False
+        self.__actions = {}
+        #if True == self.clickable:
+            #  Not sure this is really needed.  We could actually add each
+            # svg to the button list and then it will get skipped when it is seen
+            # to not be clickable.  But itterating a long list is long. So, this might help
+            #BUTTON_LIST.append(self)        
         if scale is not 1.0:
             # Apply scaling here
             ori_w = self.dom.documentElement.getAttribute('width')
@@ -427,18 +465,31 @@ class svg_image(object):
         self.svg = rsvg.Handle(data=self.dom.toxml())
         self.render()
     def draw(self, fast=False):
-        try:
-            if self.rect:
-                # I have at some previous point been on the screen, so erase that
-		#  Ohhhh.  Ok, this is what that bit does..   Not sure I need it really.
-                self.hide()
-        except:  pass
-        self.rect = screen.blit(self.pygame_image, (self.x, self.y))
-        self.visible=True
-	if True == fast:
-		return self.rect
-	else:
-        	pygame.display.update(self.rect)
+    
+        # We need to generate a rect so that other things can know our dimensions
+        # before we are eventually plotted to the screen.
+        # If we try to get plotted and we already have a rect, but are set to not visible...
+        #try:
+        #  if self.rect is not None:
+        #    print "here xxx"
+        #    return
+        #except AttributeError:
+        #  print "here yyyy"
+        #  self.rect = screen.blit(self.pygame_image, (self.x, self.y))                  
+        # This is a bad hack.  Whatdyagonnado
+        #try:
+        #    if self.rect:
+        #        # I have at some previous point been on the screen, so erase that
+		#        #  Ohhhh.  Ok, this is what that bit does..   Not sure I need it really.
+        #        self.hide()
+        #except:  pass
+        if True == fast:
+            self.rect = screen.blit(self.pygame_image, (self.x, self.y))
+            return self.rect
+        else:
+            self.rect = screen.blit(self.pygame_image, (self.x, self.y))            
+            pygame.display.update(self.rect)
+
     def hide(self):
         if True == self.visible:
             global BACKGROUND_COLOUR
@@ -472,7 +523,7 @@ class PolyButton(object):
         self.index = 0
         self.kind = "POLYBUTTON"
         self.clickable = True
-        BUTTON_LIST.append(self)
+        #BUTTON_LIST.append(self)
         self.__actions = {}
     def draw(self,draw_colour=None, fast=False):
         if self.visible == False: return
@@ -543,6 +594,7 @@ class Rectangle(PolyButton):
         #self.pointlist = [self.point1, self.point2, self.point3, self.point4]
         self.rect = pygame.Rect(self.x, self.y, size*1.3, size)
     def draw(self, draw_colour = None, fast=False):
+        if False == self.visible: return
         if draw_colour == None: draw_colour=self.colour
         self.colour = draw_colour
         self.rect = pygame.draw.rect(screen, draw_colour, self.rect)
@@ -567,9 +619,9 @@ class TextArea:
         self.rect = (0,0,0,0)
         self.kind = "TEXT"
         self.clickable = False
-        BUTTON_LIST.append(self)
+        #if True == self.clickable:  BUTTON_LIST.append(self)
         self.__actions = {}
-    def draw(self):
+    def draw(self, fast=False):
         if self.visible == False: return
         try:
             if self.rect:
@@ -583,7 +635,10 @@ class TextArea:
         render_x = self.x - (self.output_size[0]/2)
         render_y = self.y - (self.output_size[1]/2)
         self.rect = screen.blit(font_surface,(render_x,render_y))
-        pygame.display.update(self.rect)
+        if True == fast:
+          return self.rect
+        else:
+          pygame.display.update(self.rect)
     def hide(self):
         pygame.draw.rect(screen, BACKGROUND_COLOUR, self.rect)
         pygame.display.update(self.rect)
@@ -625,17 +680,31 @@ class Bitmap(object):
             self.visible = False
 
 class Screen(object):
-	def __init__(self, bgcol):
-		self.visible = False
-		self.objects = []
-		self.kind = "SCREEN"
-	def add(self, gfx_object):
-		self.objects.append(gfx_object)
-	def draw(self):
-		for each in self.objects:
-			each.hide()
-	def hide(self):
-		pass
+    def __init__(self, bgcol=BACKGROUND_COLOUR):
+        self.visible = False
+        self.objects = []
+        self.kind = "SCREEN"
+        self.bgcol = bgcol
+    def add(self, gfx_object):
+        self.objects.append(gfx_object)
+    def draw(self):
+        global BUTTON_LIST
+        BUTTON_LIST = []
+        screen.fill(self.bgcol)
+        self.visible = True
+        for each in self.objects:
+            each.visible = True
+            if True == each.clickable:
+                BUTTON_LIST.append(each)
+            a = each.draw(fast=True)
+        pygame.display.flip()
+    def hide(self):
+        self.visible = False
+        for each in self.objects:
+            each.visible = False
+            each.hide()
+        pygame.display.flip()
+
 
 ################################################################################
 ############         END OF IMAGE STUFF            #############################
@@ -660,13 +729,12 @@ def edit_stat_goal(state):
     if True == state:
         temp_text.string = str(MAIN_STAT_GOAL) + u'\N{DEGREE SIGN}'
         temp_text.colour = red
-        temp_text.draw()
+        c=temp_text.draw(fast=FAST_RENDERING)
         uparrow.visible=True
         downarrow.visible=True
-        screen.lock()
-        uparrow.draw()
-        downarrow.draw()
-        screen.unlock()
+        a = uparrow.draw(fast=FAST_RENDERING)
+        b = downarrow.draw(fast=FAST_RENDERING)
+        pygame.display.update([c,a,b])
         start_idle_timer(3000)
         IDLE_LIST.append((edit_stat_goal,[False]))
     if False == state:
@@ -680,14 +748,16 @@ def edit_stat_goal(state):
  
 
 def on_click(click_pos):
+    global BUTTON_LIST
     for each in BUTTON_LIST:
-        if True == each.visible and each.clickable == True:
+        print "   Clickable:",each.clickable
+        print "                 Visible:",each.visible
+        print "                         Type:", each.kind
+        if True == each.visible and True == each.clickable:
             try:
                 if each.rect.collidepoint(click_pos):
+                    print "XXXXXX --  Calling pressed"
                     each.pressed()
-    	            #try: each.pressed()
-    	            #except:
-    	            #    log("doesnt seem to like being pressed")
     	    except:
     	        log("Doesnt like being pressed: "+str(each))
     	        pass
@@ -785,11 +855,17 @@ def boiler_control(type):
             ch_data = json.loads(ch_resp.content)
     update_hwchstatus()
 
+# Load Required SVGs
+HWCONSCREEN=False
+hwc = svg_image('hwc_new.svg', 0, 0,1)
+
+
+
 
 def create_home_screen():
     tx = 400
     ty = 150
-    global uparrow, downarrow, temp_text, hw_butt, ch_butt, hw_text, ch_text, menu_butt, menu_text
+    global uparrow, downarrow, temp_text, hw_butt, ch_butt, hw_text, ch_text, menu_butt, menu_text, clock, menu_gfx
     uparrow   = Triangle(tx-30,ty-50,70,red)
     uparrow.visible = False
     downarrow = Triangle(tx-30,ty+50,70,red, inverted=True)
@@ -798,6 +874,8 @@ def create_home_screen():
     temp_text.clickable = True
     temp_text.visible = True
     temp_text.add_action("clicked",edit_stat_goal, [True])
+    clock = TextArea(445,10,26, black, None, datetime.datetime.strftime(datetime.datetime.now(), "%H:%M"), font="ubuntumono")
+    clock.visible = True
     uparrow.add_action("clicked", adjust_therm_temp, (1, temp_text))
     downarrow.add_action("clicked",adjust_therm_temp, (-1, temp_text))
     hw_butt = Rectangle(280,240,60, dk_grey)
@@ -815,45 +893,92 @@ def create_home_screen():
     menu_text = TextArea(55,285, 30, black, None, "Menu")
     menu_butt.add_action("clicked", draw_menu_screen)
     menu_butt.add_action("released", menu_text.draw)
-
-
+    menu_gfx = svg_image("icons/nav_menu.svg",0,0,1, False, True)
     
+    #home_screen.add(uparrow)
+    #home_screen.add(downarrow)
+    home_screen.add(temp_text)
+    home_screen.add(hw_butt)
+    home_screen.add(ch_butt)
+    home_screen.add(ch_text)
+    home_screen.add(hw_text)
+    home_screen.add(menu_butt)
+    home_screen.add(menu_text)
+    home_screen.add(clock)
+    home_screen.add(menu_gfx)
+
+def clock_tick():
+  if False == clock.visible: return
+  global CLOCK_STYLE
+  CLOCK_STYLE = not CLOCK_STYLE
+  if True == CLOCK_STYLE:
+    clock.string = datetime.datetime.strftime(datetime.datetime.now(), "%H:%M")
+  else:
+    clock.string = datetime.datetime.strftime(datetime.datetime.now(), "%H %M")
+  clock.draw()
+
+  
 def draw_home_screen():
-    screen.fill(BACKGROUND_COLOUR)
-    hw_butt.visible = ch_butt.visible = hw_text.visible = ch_text.visible = menu_text.visible = temp_text.visible = True
-    screen.lock()
-    hw_butt.draw()
-    ch_butt.draw()
-    menu_butt.draw()    
-    screen.unlock()
-    hw_text.draw()
-    ch_text.draw()
-    temp_text.draw()
-    menu_text.draw()
-    pygame.display.flip()
+    menu_screen.hide()
+    home_screen.draw()
+    rect_list = []
+    for each in wdict:
+      rect_list.append(each.draw())
+      pygame.display.update(rect_list)
+    
+#def draw_home_screen():
+#    screen.fill(BACKGROUND_COLOUR)
+#    hw_butt.visible = ch_butt.visible = hw_text.visible = ch_text.visible = menu_text.visible = temp_text.visible = True
+#    screen.lock()
+#    hw_butt.draw()
+#    ch_butt.draw()
+#    menu_butt.draw()    
+#    screen.unlock()
+#    hw_text.draw()
+#    ch_text.draw()
+#    temp_text.draw()
+#    menu_text.draw()
+#    pygame.display.flip()
 
 def create_menu_screen():
-    global show_hw_butt, show_hw_text
+    global show_hw_butt, show_hw_text, menu_back
+    menu_back = svg_image('icons/nav_back.svg',20,260,0.5, visible=False, clickable=True)
+    menu_back.add_action("clicked", draw_home_screen)
     show_hw_butt = Rectangle(80,90,100, dk_grey)
-    show_hw_butt.visible = False
-    show_hw_text = TextArea(90,100,60,black,BACKGROUND_COLOUR, "Show HW")
+    show_hw_butt.visible = True
+    show_hw_text = TextArea(90,100,20,black,BACKGROUND_COLOUR, "Show HW")
     show_hw_text.visible = show_hw_text.clickable = False
-    
+    menu_screen.add(show_hw_butt)
+    menu_screen.add(show_hw_text)
+    menu_screen.add(menu_back)
+  
     
 def draw_menu_screen():
-    temp_text.visible=False
-    hw_butt.visible = False
-    ch_butt.visible = False
-    hw_text.visible = False
-    ch_text.visible = False
-    screen.fill(BACKGROUND_COLOUR)
-    show_hw_butt.draw()
-    show_hw_text.draw()
-    pygame.display.flip()
+
+    #menu_butt.
+    # Also need to hide the weather
+    home_screen.hide()
+    menu_screen.draw()
+    for each in wdict:
+      each.visible = False
+    #grid()
+    #menu_back.clickable = True
+    #BUTTON_LIST.append(menu_back)
+    #temp_text.visible=False
+    #hw_butt.visible = False
+    #ch_butt.visible = False
+    #hw_text.visible = False
+    #ch_text.visible = False
+    #screen.fill(BACKGROUND_COLOUR)
+    #show_hw_butt.draw()
+    #show_hw_text.draw()
+    #pygame.display.flip()
 
 
 #set up the fixed items on the menu
 screen.fill(BACKGROUND_COLOUR)
+home_screen = Screen(BACKGROUND_COLOUR)
+menu_screen = Screen(BACKGROUND_COLOUR)
 create_home_screen()
 create_menu_screen()
 
@@ -865,23 +990,26 @@ michael_fish.y = 65
 
 
 
-
+grid()
 # Create first screen
-draw_home_screen()
+#draw_home_screen()
+home_screen.draw()
 update_daily_weather()
 
-# Load Required SVGs
-HWCONSCREEN=False
-hwc = svg_image('hwc_new.svg', 0, 0,1)
+
 
 
 
 # Create a once a minute tick for background updates to happen
 pygame.time.set_timer(TICK1M, 60000)
 pygame.time.set_timer(TICK15M, 900000)
+pygame.time.set_timer(TICK10SEC, 1000)
 #pygame.time.set_timer(TICK15M, 6000)
 
 backlight_control=GpioLogic.backlight(18)
+
+
+signal.signal(signal.SIGINT, exit_handler)
 
 update_hw()
 update_hwchstatus()
@@ -906,9 +1034,11 @@ while 1:
             mouse_rect = pygame.Rect((pos), (2,2))
             print pos
             on_click(pos)         
-
+        if event.type == TICK10SEC:
+            clock_tick()
         if event.type == TICK1M:
             # Background update tasks go here
+            clock_tick()
             update_hwchstatus()
             update_hw()
             old_temp = STAT_TEMPERATURE
@@ -945,7 +1075,6 @@ while 1:
             hour_counter += 1
             log("15m tick!")
             update_hw()
-            grid()
             if hour_counter > 3:
                 # Hourly jobs
                 log("Hourly tick")
@@ -978,7 +1107,7 @@ while 1:
     except KeyboardInterrupt:
         exit_handler()
     except:
-        print "Unexpected error:", sys.exc_info()[0]
+        #print "Unexpected error:", sys.exc_info()[0]
         raise
 
 
