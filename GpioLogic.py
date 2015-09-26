@@ -7,13 +7,11 @@ import RPi.GPIO as GPIO
 from RPIO import PWM
 
 GPIO.setmode(GPIO.BCM)
-GPIO.setwarnings(False)
+#GPIO.setwarnings(False)
 
 DEBUG=True
 TESTING = False
 
-print "Sometimes it gets stuck here and needs a ctrl-c to continue.  I don't know why"
-    
 
 def log(message):
   if DEBUG:

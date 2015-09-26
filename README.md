@@ -1,7 +1,10 @@
 # thermostat
 Python smart thermostat based on a Raspberry Pi and an Adafruit touchscreen.
 
-When launching menu.py for a second or subsequent time you need to ctrl-c when prompted.
+When launching menu.py for a second or subsequent time you need to ctrl-c when prompted.  EDIT:  Fixed.
+Thanks to this thread:  https://www.raspberrypi.org/forums/viewtopic.php?f=32&t=22306
+
+I found that setting the framebuffer_width and height in /boot/config.txt correctly fixed the issue.
 
 
 Weather icons: http://www.alessioatzeni.com

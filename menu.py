@@ -17,12 +17,10 @@ import json
 import atexit
 import re
 import signal
-import GpioLogic
 import traceback
 import datetime
 import copy
-
-
+import GpioLogic
 
 DEBUG = True
 TESTING = True
@@ -33,20 +31,20 @@ FAST_RENDERING = True
 #  at the time of writing.  But, there is a "bug" in the PWM code
 #  which means it terminates on *any* signal, for example SIGWINCH
 #  when the terminal resizes.  This patch "fixes" it for SIGWINCH:
-"""
-*** RPIO/source/c_pwm/pwm.c     2015-02-15 13:08:36.278338553 +0000
---- RPIO-mine/source/c_pwm/pwm.c        2015-02-15 10:24:53.836897585 +0000
-*************** setup_sighandlers(void)
-*** 338,343 ****
---- 338,344 ----
-  {
-      int i;
-      for (i = 0; i < 64; i++) {
-+         if (i == 28) continue;
-          struct sigaction sa;
-          memset(&sa, 0, sizeof(sa));
-          sa.sa_handler = (void *) terminate;
-"""
+#"""
+#*** RPIO/source/c_pwm/pwm.c     2015-02-15 13:08:36.278338553 +0000
+#--- RPIO-mine/source/c_pwm/pwm.c        2015-02-15 10:24:53.836897585 +0000
+#*************** setup_sighandlers(void)
+#*** 338,343 ****
+#--- 338,344 ----
+#  {
+#      int i;
+#      for (i = 0; i < 64; i++) {
+#+         if (i == 28) continue;
+#          struct sigaction sa;
+#          memset(&sa, 0, sizeof(sa));
+#          sa.sa_handler = (void *) terminate;
+#"""
 
 # Basically it doesnt react to sig 28, which is SIGWINCH.
 # It's a hack, but it works for me.
@@ -62,8 +60,6 @@ os.environ["SDL_MOUSEDRV"] = "TSLIB"
 #pygame.init()
 pygame.font.init()
 pygame.display.init()
-#pygame.draw.init()
-#pygame.image.init()
 pygame.mouse.set_visible(False)
 default_fontstyle = "none"
 #default_fontname = pygame.font.match_font(default_fontstyle)
@@ -71,7 +67,6 @@ default_fontname = None
 size = width, height = 480, 320
 screen = pygame.display.set_mode(size)
 screen.fill((255,255,255))
-
 
 #define colours
 blue = 0, 0, 255
@@ -128,8 +123,6 @@ def log(message, col=None):
     else:
       print "Something happened"
       return
-
-
 
 def exit_handler(signal, frame):
     log("Tidying up...")
@@ -232,6 +225,7 @@ WEATHER_CODES_NIGHT = {"NA": "Not available",
                  28: ["Thunder shower (night)","Cloud-Lightning-Moon.svg"],
                  29: ["Thunder shower (day)","Cloud-Lightning.svg"],
                  30: ["Thunder","Cloud-Lightning.svg"]}
+
 
 def get_outside_temp():
     resp = requests.get(url="http://calculon/home/current_temperature.py?basic=true")
@@ -408,8 +402,6 @@ def update_daily_weather():
 ##                             END  WEATHER STUFF                             ##
 ################################################################################
 
-
-
 ################################################################################
 ##              IMAGE STUFF
 ################################################################################
@@ -422,6 +414,7 @@ class svg_image(object):
         self.scale = scale
         self.visible=visible
         self.clickable = clickable
+        self.start_hidden = False
         self.dom = minidom.parse(filename)
         self.index=0
         self.kind = "SVG"
@@ -519,6 +512,7 @@ class PolyButton(object):
         self.inverted = inverted
         self.ispressed = False
         self.visible = True
+        self.start_hidden = False
         self.pcol = None
         self.index = 0
         self.kind = "POLYBUTTON"
@@ -573,6 +567,7 @@ class PolyButton(object):
 class Triangle(PolyButton):
     def __init__(self,x,y,size,colour, inverted=False):
         PolyButton.__init__(self, x,y,size,colour,inverted)
+        self.kind = "TRIANGLE"
         if False == self.inverted:
             self.point1 = ((self.x - self.offset),self.y)
             self.point2 = (self.x, self.y-self.offset)
@@ -586,6 +581,7 @@ class Triangle(PolyButton):
 class Rectangle(PolyButton):
     def __init__(self,x,y,size,colour):
         PolyButton.__init__(self, x,y,size,colour)
+        self.kind = "RECTANGLE"
         # Left, top, width, height
         self.point1 = self.x
         self.point2 = self.y
@@ -615,6 +611,7 @@ class TextArea:
         self.font = pygame.font.Font(pygame.font.match_font(font),size)
         self.ispressed = False
         self.visible = True
+        self.start_hidden = False
         self.bgcol = bgcol
         self.rect = (0,0,0,0)
         self.kind = "TEXT"
@@ -662,6 +659,7 @@ class Bitmap(object):
             self.x=0
             self.y=0
             self.visible=False
+            self.start_hidden = True
             self.surface = pygame.image.load(filename)
             self.surface.set_colorkey(colour_key)
             self.surface = self.surface.convert()
@@ -693,7 +691,8 @@ class Screen(object):
         screen.fill(self.bgcol)
         self.visible = True
         for each in self.objects:
-            each.visible = True
+            if False == each.start_hidden:
+                each.visible = True
             if True == each.clickable:
                 BUTTON_LIST.append(each)
             a = each.draw(fast=True)
@@ -865,11 +864,13 @@ hwc = svg_image('hwc_new.svg', 0, 0,1)
 def create_home_screen():
     tx = 400
     ty = 150
-    global uparrow, downarrow, temp_text, hw_butt, ch_butt, hw_text, ch_text, menu_butt, menu_text, clock, menu_gfx
+    global uparrow, downarrow, temp_text, hw_butt, ch_butt, hw_text, ch_text, menu_butt, menu_text, clock, menu_gfx, wdict
     uparrow   = Triangle(tx-30,ty-50,70,red)
     uparrow.visible = False
+    uparrow.start_hidden = True
     downarrow = Triangle(tx-30,ty+50,70,red, inverted=True)
     downarrow.visible = False
+    downarrow.start_hidden = True
     temp_text = TextArea(tx,ty,150,black, BACKGROUND_COLOUR, str(int(STAT_TEMPERATURE)) + u'\N{DEGREE SIGN}')
     temp_text.clickable = True
     temp_text.visible = True
@@ -894,9 +895,6 @@ def create_home_screen():
     menu_butt.add_action("clicked", draw_menu_screen)
     menu_butt.add_action("released", menu_text.draw)
     menu_gfx = svg_image("icons/nav_menu.svg",0,0,1, False, True)
-    
-    #home_screen.add(uparrow)
-    #home_screen.add(downarrow)
     home_screen.add(temp_text)
     home_screen.add(hw_butt)
     home_screen.add(ch_butt)
@@ -906,6 +904,9 @@ def create_home_screen():
     home_screen.add(menu_text)
     home_screen.add(clock)
     home_screen.add(menu_gfx)
+    home_screen.add(uparrow)
+    home_screen.add(downarrow)
+
 
 def clock_tick():
   if False == clock.visible: return
@@ -919,12 +920,18 @@ def clock_tick():
 
   
 def draw_home_screen():
+    print "XXXXX I got here draw_home_screen"
     menu_screen.hide()
     home_screen.draw()
-    rect_list = []
-    for each in wdict:
-      rect_list.append(each.draw())
-      pygame.display.update(rect_list)
+
+    #for each in wdict:
+    #  rect_list.append(each.draw())
+    #  pygame.display.update(rect_list)
+    #uparrow.clickable = True
+    #downarrown.clickable = True
+    #BUTTON_LIST.append(uparrow)
+    #BUTTON_LIST.append(downarrow)
+    #print BUTTON_LIST
     
 #def draw_home_screen():
 #    screen.fill(BACKGROUND_COLOUR)
@@ -954,13 +961,11 @@ def create_menu_screen():
   
     
 def draw_menu_screen():
-
-    #menu_butt.
     # Also need to hide the weather
     home_screen.hide()
     menu_screen.draw()
-    for each in wdict:
-      each.visible = False
+    #for each in wdict:
+    #  each.visible = False
     #grid()
     #menu_back.clickable = True
     #BUTTON_LIST.append(menu_back)
@@ -995,7 +1000,8 @@ grid()
 #draw_home_screen()
 home_screen.draw()
 update_daily_weather()
-
+for each in wdict:
+  home_screen.add(each)
 
 
 
