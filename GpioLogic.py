@@ -5,6 +5,9 @@
 
 import RPi.GPIO as GPIO
 from RPIO import PWM
+from subprocess import call
+
+CODE_LOOKUP = {'1':"0FFF", '2':"F0FF", '3':"FF0F", '4':"FFF0", 'on':"FF", 'off':"F0"}
 
 GPIO.setmode(GPIO.BCM)
 #GPIO.setwarnings(False)
@@ -90,6 +93,35 @@ def get_room_temp(device):
         return temperature
     except:
         return False
+
+
+class txPower(object):
+  def __init__(self,gpio):
+    self.gpio = gpio
+    GPIO.setup(self.gpio, GPIO.OUT, initial=False)
+  def on(self):
+    GPIO.output(self.gpio, True)
+  def off(self):
+    GPIO.output(self.gpio, False)
+
+
+def build_bits(group=1, rxer=1, state="on"):
+  '''Pass in group number (1->4), rx number (1->4), and state as "on"  or "off"'''
+  bits = ""
+  bits += CODE_LOOKUP[group]
+  bits += CODE_LOOKUP[rxer]
+  bits += "FF" # unused
+  bits += CODE_LOOKUP[state]
+  bits += "S"
+  log(bits)
+  return bits
+
+
+def send_code(txpwr, bits):
+  txpwr.on()
+  status = call("/home/pi/source/rcswitch-pi/sendTriState" + " " + bits, shell=True)
+  print "Status: %s" % status
+  txpwr.off()
 
 
 
