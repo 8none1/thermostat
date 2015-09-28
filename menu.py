@@ -148,8 +148,14 @@ def grid():
 ################################################################################
 
 import metoffer
+with open('weather_api.txt') as f:
+  lines = f.readlines()
+for each in lines:
+  if each[0] == "#": continue
+  else:
+    weather_api_key = each
+    break
 
-weather_api_key = "71519fa6-3e60-42fa-af60-73565d1750af"
 weather_location = "353363" # Sandy
 METDATA = metoffer.MetOffer(weather_api_key)
 
@@ -240,6 +246,8 @@ class weatherIcon(object):
         self.scale = scale
         self.subscale = subscale
         self.visible = True
+        self.start_hidden = False
+        self.kind = "WEATHER_ICON"
         if self.period == "Day":
             self.icon = WEATHER_CODES_DAY[self.wtype][1]
             self.wdesc = WEATHER_CODES_DAY[self.wtype][0]
@@ -288,12 +296,18 @@ class weatherIcon(object):
         #print "------------------------------------"
         #     def __init__(self, filename,x,y, scale=1.0, visible=False):
         self.image = svg_image("icons/"+self.icon, 0, 0,self.scale)
-    def draw(self):
+    def draw(self, fast=None):
+        print "In draw weather icon"
+        print "Self.visible: "+str(self.visible)
+        # Don't support fast drawing at the moment because of the sub icons
         if False == self.visible:  return
+        print "-- Am visible.  Calling draw"
         self.image.draw()
+        print "-- Doing sub icons..."
         for each in self.subicons:
+            print "----- doing sub icon"
             each.draw()
-    def hide(self):
+    def hide(self, fast=None):
         self.image.hide()
         self.visible = False
         for each in self.subicons:
@@ -691,10 +705,14 @@ class Screen(object):
         screen.fill(self.bgcol)
         self.visible = True
         for each in self.objects:
+            print "Drawing to a screen:  ",each.kind
             if False == each.start_hidden:
                 each.visible = True
+                print "--Setting visible = True"
             if True == each.clickable:
                 BUTTON_LIST.append(each)
+                print "--Adding to button list."
+            print "Calling draw on that object..."
             a = each.draw(fast=True)
         pygame.display.flip()
     def hide(self):
@@ -864,7 +882,7 @@ hwc = svg_image('hwc_new.svg', 0, 0,1)
 def create_home_screen():
     tx = 400
     ty = 150
-    global uparrow, downarrow, temp_text, hw_butt, ch_butt, hw_text, ch_text, menu_butt, menu_text, clock, menu_gfx, wdict
+    global uparrow, downarrow, temp_text, hw_butt, ch_butt, hw_text, ch_text, menu_butt, menu_text, clock, menu_gfx
     uparrow   = Triangle(tx-30,ty-50,70,red)
     uparrow.visible = False
     uparrow.start_hidden = True
@@ -1000,7 +1018,8 @@ grid()
 #draw_home_screen()
 home_screen.draw()
 update_daily_weather()
-for each in wdict:
+for each in wdict[:8]:
+  print "Adding to home_screen: ", each.kind
   home_screen.add(each)
 
 
