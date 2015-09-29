@@ -903,9 +903,9 @@ def switch_control(icon, state, switchid=None):
     print "Shell out to remote sockets and switch %s to %s" % (switchid, state)
     if switchid == "lounge":
         if True == state:
-            bits = GpioLogic.build_bits("3","1","on")
+            bits = GpioLogic.build_bits("3","2","on")
         else:
-            bits = GpioLogic.build_bits("3","1","off")
+            bits = GpioLogic.build_bits("3","2","off")
     GpioLogic.send_code(tx_pwr, bits)
   
     

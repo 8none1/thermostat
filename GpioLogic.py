@@ -100,8 +100,10 @@ class txPower(object):
     self.gpio = gpio
     GPIO.setup(self.gpio, GPIO.OUT, initial=False)
   def on(self):
+    print "Power on Transmitter"
     GPIO.output(self.gpio, True)
   def off(self):
+    print "Power off transmitter"
     GPIO.output(self.gpio, False)
 
 
@@ -119,7 +121,8 @@ def build_bits(group=1, rxer=1, state="on"):
 
 def send_code(txpwr, bits):
   txpwr.on()
-  status = call("/home/pi/source/rcswitch-pi/sendTriState" + " " + bits, shell=True)
+  print "here"
+  status = call("/home/pi/source/rcswitch-pi/sendTriState" + " " + bits)
   print "Status: %s" % status
   txpwr.off()
 
