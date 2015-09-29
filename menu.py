@@ -20,6 +20,8 @@ import traceback
 import datetime
 import copy
 import GpioLogic
+import io
+from urllib2 import urlopen
 
 DEBUG = True
 TESTING = True
@@ -66,7 +68,7 @@ pygame.mouse.set_visible(False)
 default_fontstyle = "none"
 #default_fontname = pygame.font.match_font(default_fontstyle)
 default_fontname = None
-size = width, height = 480, 320
+size = screen_width, screen_height = 480, 320
 screen = pygame.display.set_mode(size)
 screen.fill((255,255,255))
 
@@ -103,6 +105,8 @@ WEATHER_VISIBLE = True
 CLOCK_STYLE = True
 wdict = []
 thermostat_relay = GpioLogic.basicRelay(17, "Thermostat")
+top_data = mid_data = btm_data = 0
+
 
 class bcolours:
     HEADER = '\033[95m'
@@ -135,14 +139,14 @@ def exit_handler(signal, frame):
 
 def grid():
     if TESTING:
-        for x in range(0,width,10):
+        for x in range(0,screen_width,10):
             if x % 2 == 0: col = red
             else: col = blue
-            pygame.draw.line(screen,col,(x,0),(x,height))
-        for y in range(0,height,10):
+            pygame.draw.line(screen,col,(x,0),(x,screen_height))
+        for y in range(0,screen_height,10):
             if y % 2 == 0: col = red
             else: col = black
-            pygame.draw.line(screen,col,(0,y),(width,y))
+            pygame.draw.line(screen,col,(0,y),(screen_width,y))
         pygame.display.flip()
         
 ################################################################################
@@ -352,13 +356,12 @@ def update_daily_weather():
     now = time.localtime().tm_hour
     if now > 17:
         wdict = wdict[1:]
-
+    blank_rect = pygame.Rect(0,0,screen_width, 80) # do same for current weather
+    pygame.draw.rect(screen, BACKGROUND_COLOUR, blank_rect)
     for each in wdict[:8]:
         if first:
             first = False
-            each.image = svg_image("icons/"+each.icon, 20, 70,2.5)
-            #BUTTON_LIST.append(each.image)
-            #each.image.draw()
+            each.image = svg_image("icons/"+each.icon, 20, 80,2.5)
             icon_list.append(each.image.draw(fast=FAST_RENDERING))
             each.subicons = []
             x = 5# outttext.rect.x
@@ -378,12 +381,10 @@ def update_daily_weather():
             for thing in each.subicons:
                 thing.x = x
                 x += 55
-                #thing.draw()
                 icon_list.append(thing.draw(fast=FAST_RENDERING))
             x = 2
         else:
             each.image.x = x
-            #each.image.draw()
             icon_list.append(each.image.draw(fast=FAST_RENDERING))
             string = each.dow + ": "+str(each.temp)+u'\N{DEGREE SIGN}'
             each.text = TextArea(each.image.rect.centerx,each.image.rect.bottom+5,19,black,BACKGROUND_COLOUR,string)        
@@ -395,15 +396,13 @@ def update_daily_weather():
                     thing.x = n
                     thing.y = each.image.y + 65
                     n += 15
-                #thing.draw()
                 icon_list.append(thing.draw(fast=FAST_RENDERING))
             # class TextArea:
             #init__(self, x,y,size,colour,bgcol=None,string="",font=default_fontstyle):
             x += 60
 
     outtemp = get_outside_temp()
-    #outttext = TextArea(115, 230, 70, black, BACKGROUND_COLOUR, str(outtemp)+u'\N{DEGREE SIGN}')
-    outttext = TextArea(100, 233, 70, black, None, str(outtemp)+u'\N{DEGREE SIGN}')    
+    outttext = TextArea(100, 243, 70, black, BACKGROUND_COLOUR, str(outtemp)+u'\N{DEGREE SIGN}')  
     if True == FAST_RENDERING:
         icon_list.append(outttext.draw(fast=FAST_RENDERING))      
     else:
@@ -411,6 +410,47 @@ def update_daily_weather():
 
     if True == FAST_RENDERING:
       pygame.display.update(icon_list)
+
+current_map_time = None
+
+def update_sat_image():
+    global current_map_time
+    x = METDATA.map_overlay_obs()
+    base_url = x['Layers']['BaseUrl']['$']
+    # http://datapoint.metoffice.gov.uk/public/data/layer/wxobs/{LayerName}/{ImageFormat}?TIME={Time}Z&key={key}
+    
+    found = False
+    for each in x['Layers']['Layer']:
+      if each.values()[0] == "SatelliteVis":
+        found = True
+        break
+    if True == found:
+        layer_name = each['Service']['LayerName']
+        img_fmt = each['Service']['ImageFormat']
+        latest_map_time = each['Service']['Times']['Time'][0] # Assuming first is most recent
+        if latest_map_time == current_map_time:  return
+        else: current_map_time = latest_map_time
+        base_url = base_url.split("{LayerName}")
+        base_url = base_url[0]+layer_name+base_url[1]
+        base_url = base_url.split("{ImageFormat}")
+        base_url = base_url[0]+img_fmt+base_url[1]
+        base_url = base_url.split("{Time}")
+        base_url = base_url[0]+latest_map_time+base_url[1]
+        base_url = base_url.split("{key}")
+        base_url = base_url[0]+weather_api_key+base_url[1]
+        image_str = urlopen(base_url).read()
+        image_file = io.BytesIO(image_str)
+        image = pygame.image.load(image_file)
+        screen.blit(image, (0,0))
+        pygame.display.flip()
+        
+    else:
+        print "Couldn't get sat images."
+        return    
+        
+        
+        
+    
     
 ################################################################################
 ##                             END  WEATHER STUFF                             ##
@@ -469,24 +509,6 @@ class svg_image(object):
         self.svg = rsvg.Handle(data=self.dom.toxml())
         self.render()
     def draw(self, fast=False):
-    
-        # We need to generate a rect so that other things can know our dimensions
-        # before we are eventually plotted to the screen.
-        # If we try to get plotted and we already have a rect, but are set to not visible...
-        #try:
-        #  if self.rect is not None:
-        #    print "here xxx"
-        #    return
-        #except AttributeError:
-        #  print "here yyyy"
-        #  self.rect = screen.blit(self.pygame_image, (self.x, self.y))                  
-        # This is a bad hack.  Whatdyagonnado
-        #try:
-        #    if self.rect:
-        #        # I have at some previous point been on the screen, so erase that
-		#        #  Ohhhh.  Ok, this is what that bit does..   Not sure I need it really.
-        #        self.hide()
-        #except:  pass
         if True == fast:
             self.rect = screen.blit(self.pygame_image, (self.x, self.y))
             return self.rect
@@ -797,9 +819,11 @@ def on_click(click_pos):
     	        pass
         	        
 def update_hw():
+    global top_data, mid_data, btm_data
     try:
         resp = requests.get(url="http://calculon/home/current_hwc.py")
     except:
+        print "Failed to get hot water status message from server"
         return
     data = json.loads(resp.content)
     tmb = data['rows'][0]['c'] # wtf
@@ -807,10 +831,10 @@ def update_hw():
     mid_data = tmb[1]['v']
     btm_data = tmb[2]['v']
     
-    if btm_data <= 28:
+    if mid_data <= 34:
         log("tank empty")
         hwc.dom.getElementsByTagName('linearGradient')[1].setAttribute('y1','-800')
-    elif btm_data > 43:
+    elif btm_data > 46:
         log("full tank")
         hwc.dom.getElementsByTagName('linearGradient')[1].setAttribute('y1','800')
     else:
@@ -831,7 +855,7 @@ def update_hwchstatus():
         #break
       except:
         log("Couldn't contact PiWarmer.  Trying again. #"+str(n)) # Need a function to handle these requests better, when a server has gone away etc, so we don't just crash
-        time.sleep(3) # ugly.
+        #time.sleep(3) # ugly.
     try:    
         ch_data = json.loads(ch_resp.content)
         hw_data = json.loads(hw_resp.content)
@@ -929,7 +953,7 @@ def create_home_screen():
     temp_text.clickable = True
     temp_text.visible = True
     temp_text.add_action("clicked",edit_stat_goal, [True])
-    clock = TextArea(145,300,26, black, None, datetime.datetime.strftime(datetime.datetime.now(), "%H:%M  %d %b"), font="ubuntumono")
+    clock = TextArea(180,300,20, black, None, datetime.datetime.strftime(datetime.datetime.now(), "%H:%M  %d %b"), font="ubuntumono")
     clock.visible = True
     uparrow.add_action("clicked", adjust_therm_temp, (1, temp_text))
     downarrow.add_action("clicked",adjust_therm_temp, (-1, temp_text))
@@ -1098,12 +1122,14 @@ for each in wdict[:8]:
     home_screen.add(x)
 home_screen.add(outttext)
 
+update_sat_image()
+    
 
 
 # Create a once a minute tick for background updates to happen
 pygame.time.set_timer(TICK1M, 60000)
 pygame.time.set_timer(TICK15M, 900000)
-pygame.time.set_timer(TICK10SEC, 1000)
+#pygame.time.set_timer(TICK10SEC, 1000)
 #pygame.time.set_timer(TICK15M, 6000)
 
 backlight_control=GpioLogic.backlight(18)
@@ -1136,8 +1162,8 @@ while 1:
             mouse_rect = pygame.Rect((pos), (2,2))
             print pos
             on_click(pos)         
-        if event.type == TICK10SEC:
-            clock_tick()
+        #if event.type == TICK10SEC:
+        #    clock_tick()
         if event.type == TICK1M:
             # Background update tasks go here
             clock_tick()
@@ -1179,13 +1205,13 @@ while 1:
             update_hw()
             if hour_counter > 3:
                 # Hourly jobs
-                log("Hourly tick")
+                log("Hourly tick!")
                 hour_counter = 0
                 michael_fish.draw()
                 time.sleep(5)
                 michael_fish.hide()
-                for each in wdict[:8]:
-                    each.hide()
+                #for each in wdict[:8]:
+                #    each.hide()
                 update_daily_weather()
                 
               
