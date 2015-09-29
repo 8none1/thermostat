@@ -4,7 +4,6 @@ import sys
 import pygame
 from pygame.locals import *
 import time
-import subprocess
 import os
 import array
 import math
@@ -27,7 +26,8 @@ TESTING = True
 FAST_RENDERING = True
 
 #  UPDATE:  Looks like a proper fix was merged on 2015-05-14 so this patch
-#  isn't needed anymore.
+#  isn't needed anymore.  But you stil have to pull the version from Git and
+#  build it I think.
 #  We use the PWM code from RPIO (https://github.com/metachris/RPIO)
 #  because it has a much better PWM implentation (or at least it had
 #  at the time of writing.  But, there is a "bug" in the PWM code

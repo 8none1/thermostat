@@ -121,9 +121,14 @@ def build_bits(group=1, rxer=1, state="on"):
 
 def send_code(txpwr, bits):
   txpwr.on()
-  print "here"
-  status = call("/home/pi/source/rcswitch-pi/sendTriState" + " " + bits)
-  print "Status: %s" % status
+  # sendTriState is from https://github.com/thjm/rcswitch-pi
+  # I've changed sendTriState a little bit to add a wait while the tx settles, and
+  # then just to send the codes a few times to make sure.
+  status = call(["/home/pi/source/rcswitch-pi/sendTriState", bits])
+  #Popen(["/home/pi/source/rcswitch-pi/sendTriState", bits]) # Actaully, this won't work, we need to block
+  #otherwise the power gets turned off before the send has happened :)
+  # Really though, this needs to be turned in to a web service so that general things can use it
+  # TODO:  Turn sending the codes in to a web service.
   txpwr.off()
 
 
