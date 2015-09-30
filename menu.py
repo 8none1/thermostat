@@ -71,6 +71,8 @@ default_fontname = None
 size = screen_width, screen_height = 480, 320
 screen = pygame.display.set_mode(size)
 screen.fill((255,255,255))
+pygame.display.flip()
+pygame.event.pump()
 
 #define colours
 blue = 0, 0, 255
@@ -103,7 +105,9 @@ HOTWATER = False
 ALL_ONSCREEN_OBJECTS = []
 WEATHER_VISIBLE = True
 CLOCK_STYLE = True
+SAT_IMAGE = ""
 wdict = []
+
 thermostat_relay = GpioLogic.basicRelay(17, "Thermostat")
 top_data = mid_data = btm_data = 0
 
@@ -242,6 +246,34 @@ WEATHER_CODES_NIGHT = {"NA": "Not available",
                  30: ["Thunder","Cloud-Lightning.svg"]}
 
 
+def aspect_scale(img,(bx,by)):
+    # http://www.pygame.org/pcr/transform_scale/
+    """ Scales 'img' to fit into box bx/by.
+     This method will retain the original image's aspect ratio """
+    ix,iy = img.get_size()
+    if ix > iy:
+        # fit to width
+        scale_factor = bx/float(ix)
+        sy = scale_factor * iy
+        if sy > by:
+            scale_factor = by/float(iy)
+            sx = scale_factor * ix
+            sy = by
+        else:
+            sx = bx
+    else:
+        # fit to height
+        scale_factor = by/float(iy)
+        sx = scale_factor * ix
+        if sx > bx:
+            scale_factor = bx/float(ix)
+            sx = bx
+            sy = scale_factor * iy
+        else:
+            sy = by
+
+    return pygame.transform.scale(img, (int(sx),int(sy)))
+
 def get_outside_temp():
     resp = requests.get(url="http://calculon/home/current_temperature.py?basic=true")
     data = json.loads(resp.content)
@@ -319,10 +351,6 @@ class weatherIcon(object):
             each.hide()            
 
 def update_daily_weather():
-    # Could probably free up some memory once it's run
-    # Need to think about this for everything, try and free up big data structs
-    # once I'm done with them.  Although, right now we don't seem to be stressing
-    # the Pi
     if False == WEATHER_VISIBLE: return
     global wdict, outttext
     wdict = []
@@ -356,8 +384,11 @@ def update_daily_weather():
     now = time.localtime().tm_hour
     if now > 17:
         wdict = wdict[1:]
-    blank_rect = pygame.Rect(0,0,screen_width, 80) # do same for current weather
+    blank_rect = pygame.Rect(0,0,screen_width, 80) # daily weather icons
     pygame.draw.rect(screen, BACKGROUND_COLOUR, blank_rect)
+    blank_rect = pygame.Rect(0,80,160, 190) # current weather
+    pygame.draw.rect(screen, BACKGROUND_COLOUR, blank_rect)
+    
     for each in wdict[:8]:
         if first:
             first = False
@@ -414,7 +445,7 @@ def update_daily_weather():
 current_map_time = None
 
 def update_sat_image():
-    global current_map_time
+    global current_map_time, SAT_IMAGE
     x = METDATA.map_overlay_obs()
     base_url = x['Layers']['BaseUrl']['$']
     # http://datapoint.metoffice.gov.uk/public/data/layer/wxobs/{LayerName}/{ImageFormat}?TIME={Time}Z&key={key}
@@ -441,20 +472,27 @@ def update_sat_image():
         image_str = urlopen(base_url).read()
         image_file = io.BytesIO(image_str)
         image = pygame.image.load(image_file)
-        screen.blit(image, (0,0))
-        pygame.display.flip()
+        SAT_IMAGE = aspect_scale(image, (screen_width, screen_height))
+        #screen.blit(image, (0,0))
+        #pygame.display.flip()
         
     else:
         print "Couldn't get sat images."
         return    
         
-        
+def draw_sat_image():
+    rect = screen.blit(SAT_IMAGE, (100,0))
+    pygame.display.update(rect)
+
+    
         
     
     
 ################################################################################
 ##                             END  WEATHER STUFF                             ##
 ################################################################################
+
+pygame.event.pump()
 
 ################################################################################
 ##              IMAGE STUFF
@@ -726,27 +764,25 @@ class Bitmap(object):
             self.surface = self.surface.convert()
             self.kind = "BITMAP"
         def draw(self):
-            #try: # What the hell does this do?  FIXME  Maybe was intended to toggle the state. Can't remember why.  Turn this off and see what breaks.
-            #    if self.rect:
-            #        self.hide()
-            #except: pass
+            if False == self.visible:  return
             self.rect = screen.blit(self.surface, (self.x, self.y))
             pygame.display.update(self.rect)
-            self.visible = True
         def hide(self):
             rect = pygame.draw.rect(screen, BACKGROUND_COLOUR, self.rect)
             pygame.display.update(rect)
             self.visible = False
 
-class Screen(object):
+class MenuScreen(object):
     def __init__(self, bgcol=BACKGROUND_COLOUR):
         self.visible = False
         self.objects = []
         self.kind = "SCREEN"
+        self.name = "Unnamed"
         self.bgcol = bgcol
     def add(self, gfx_object):
         self.objects.append(gfx_object)
     def draw(self):
+        print "Drawing: "+self.name
         global BUTTON_LIST
         BUTTON_LIST = []
         screen.fill(self.bgcol)
@@ -855,7 +891,7 @@ def update_hwchstatus():
         #break
       except:
         log("Couldn't contact PiWarmer.  Trying again. #"+str(n)) # Need a function to handle these requests better, when a server has gone away etc, so we don't just crash
-        #time.sleep(3) # ugly.
+        pygame.time.wait(3000)
     try:    
         ch_data = json.loads(ch_resp.content)
         hw_data = json.loads(hw_resp.content)
@@ -940,6 +976,7 @@ def restore_icon(icon):
 
 
 def create_home_screen():
+    home_screen.name = "Home Screen"
     tx = 400
     ty = 150
     global uparrow, downarrow, temp_text, hw_butt, ch_butt, hw_text, ch_text, menu_butt, menu_text, clock, menu_gfx
@@ -985,44 +1022,24 @@ def create_home_screen():
 
 def clock_tick():
   if False == clock.visible: return
-  global CLOCK_STYLE
-  CLOCK_STYLE = not CLOCK_STYLE
-  if True == CLOCK_STYLE:
-    clock.string = datetime.datetime.strftime(datetime.datetime.now(), "%H:%M %d %b")
-  else:
-    clock.string = datetime.datetime.strftime(datetime.datetime.now(), "%H %M %d %b")
+  #global CLOCK_STYLE
+  #CLOCK_STYLE = not CLOCK_STYLE
+  #if True == CLOCK_STYLE:
+  clock.string = datetime.datetime.strftime(datetime.datetime.now(), "%H:%M %d %b")
+  #else:
+  #  clock.string = datetime.datetime.strftime(datetime.datetime.now(), "%H %M %d %b")
   clock.draw()
 
   
 def draw_home_screen():
     WEATHER_VISIBLE=True
     menu_screen.hide()
+    hwc_screen.hide()
     home_screen.draw()
 
-    #for each in wdict:
-    #  rect_list.append(each.draw())
-    #  pygame.display.update(rect_list)
-    #uparrow.clickable = True
-    #downarrown.clickable = True
-    #BUTTON_LIST.append(uparrow)
-    #BUTTON_LIST.append(downarrow)
-    #print BUTTON_LIST
-    
-#def draw_home_screen():
-#    screen.fill(BACKGROUND_COLOUR)
-#    hw_butt.visible = ch_butt.visible = hw_text.visible = ch_text.visible = menu_text.visible = temp_text.visible = True
-#    screen.lock()
-#    hw_butt.draw()
-#    ch_butt.draw()
-#    menu_butt.draw()    
-#    screen.unlock()
-#    hw_text.draw()
-#    ch_text.draw()
-#    temp_text.draw()
-#    menu_text.draw()
-#    pygame.display.flip()
 
 def create_menu_screen():
+    menu_screen.name = "Menu Screen"
     global show_hw_butt, show_hw_text, menu_back, lounge_light_on, lounge_light_off
     menu_back = svg_image('icons/nav_back.svg',20,260,0.5, visible=False, clickable=True)
     menu_back.add_action("clicked", draw_home_screen)
@@ -1046,14 +1063,22 @@ def create_menu_screen():
     lounge_light_on.add_action("clicked", switch_control, (lounge_light_on, True, "lounge"))
     lounge_light_on.add_action("released", restore_icon, [lounge_light_on])
     lounge_light_text = TextArea(100,200,32,black, None, "Lounge Lights")
-    
     menu_screen.add(lounge_light_off)
     menu_screen.add(lounge_light_on)
-    menu_screen.add(lounge_light_text)
+    menu_screen.add(lounge_light_text)    
+    
+    sat_img_butt = Rectangle(150,20,70,dk_grey)
+    sat_img_butt.visible = True
+    sat_img_butt.borders = True
+    sat_img_butt.add_action("clicked", draw_sat_image)
+    menu_screen.add(sat_img_butt)
+    
+
     
 
 
 def create_hwc_screen():
+    hwc_screen.name = "Hot Water Cylinder Screen"
     global hw_butt, ch_button, hw_text, ch_text, hwc, menu_back
     menu_back_hwc = copy.copy(menu_back)
     hwc_screen.add(hw_butt)
@@ -1066,6 +1091,7 @@ def create_hwc_screen():
     
     
 def draw_menu_screen():
+    global WEATHER_VISIBLE
     WEATHER_VISIBLE=False
     # Also need to hide the weather
     home_screen.hide()
@@ -1073,30 +1099,17 @@ def draw_menu_screen():
     menu_screen.draw()
     
 def draw_hwc_screen():
-    WEATHER_VISIBLE=False
     menu_screen.hide()
     hwc_screen.draw()
-    #for each in wdict:
-    #  each.visible = False
-    #grid()
-    #menu_back.clickable = True
-    #BUTTON_LIST.append(menu_back)
-    #temp_text.visible=False
-    #hw_butt.visible = False
-    #ch_butt.visible = False
-    #hw_text.visible = False
-    #ch_text.visible = False
-    #screen.fill(BACKGROUND_COLOUR)
-    #show_hw_butt.draw()
-    #show_hw_text.draw()
-    #pygame.display.flip()
 
 
 #set up the fixed items on the menu
 screen.fill(BACKGROUND_COLOUR)
-home_screen = Screen()
-menu_screen = Screen()
-hwc_screen = Screen()
+pygame.display.flip()
+pygame.event.pump()
+home_screen = MenuScreen()
+menu_screen = MenuScreen()
+hwc_screen = MenuScreen()
 create_home_screen()
 create_menu_screen()
 create_hwc_screen()
@@ -1104,19 +1117,15 @@ create_hwc_screen()
 
 
 michael_fish = Bitmap('michael_fish.png', (0,255,0))
-michael_fish.visible = 0
+michael_fish.visible = False
 michael_fish.x = 75
 michael_fish.y = 65
 
 
 
-grid()
-# Create first screen
-#draw_home_screen()
 home_screen.draw()
 update_daily_weather()
 for each in wdict[:8]:
-  #print "Adding to home_screen: ", each.kind
   home_screen.add(each.image)
   for x in each.subicons:
     home_screen.add(x)
@@ -1134,9 +1143,6 @@ pygame.time.set_timer(TICK15M, 900000)
 
 backlight_control=GpioLogic.backlight(18)
 tx_pwr = GpioLogic.txPower(22)
-
-
-
 signal.signal(signal.SIGINT, exit_handler)
 
 update_hw()
@@ -1168,10 +1174,9 @@ while 1:
             # Background update tasks go here
             clock_tick()
             update_hwchstatus()
-            update_hw()
             old_temp = STAT_TEMPERATURE
             STAT_TEMPERATURE = GpioLogic.get_room_temp("28-00000558ff02")
-            if STAT_TEMPERATURE == False or STAT_TEMPERATURE > 50:
+            if STAT_TEMPERATURE == False or STAT_TEMPERATURE > 40 or STAT_TEMPERATURE < -10:
                 STAT_TEMPERATURE = old_temp
             temp_text.string = str(int(STAT_TEMPERATURE)) + u'\N{DEGREE SIGN}'
             temp_text.draw()
@@ -1193,6 +1198,8 @@ while 1:
                 avg_counter = 0
                 avg_temp = 0
             very_idle_counter +=1
+            if very_idle_counter > 1: # There might be some problems here, because once it's > 1 then this will get called every minute
+              if False == home_screen.visible:  draw_home_screen()
             if very_idle_counter > 30:
                 if very_idle != True:
                     very_idle = True       
@@ -1207,12 +1214,12 @@ while 1:
                 # Hourly jobs
                 log("Hourly tick!")
                 hour_counter = 0
+                michael_fish.visible = True
                 michael_fish.draw()
-                time.sleep(5)
+                pygame.time.wait(5000)
                 michael_fish.hide()
-                #for each in wdict[:8]:
-                #    each.hide()
                 update_daily_weather()
+                update_sat_image()
                 
               
         if event.type == BUTTONHIGHLIGHT:
