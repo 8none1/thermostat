@@ -21,11 +21,17 @@ import datetime
 import copy
 import GpioLogic
 import io
+import urllib2
 from urllib2 import urlopen
+import httplib
+import base64
+import StringIO
+
+
 
 DEBUG = True
 TESTING = True
-FAST_RENDERING = True
+FAST_RENDERING = True # Quick tests show that fast isn't faster
 
 #  UPDATE:  Looks like a proper fix was merged on 2015-05-14 so this patch
 #  isn't needed anymore.  But you stil have to pull the version from Git and
@@ -106,9 +112,11 @@ ALL_ONSCREEN_OBJECTS = []
 WEATHER_VISIBLE = True
 CLOCK_STYLE = True
 SAT_IMAGE = ""
-wdict = []
+WDICT = []
 
-thermostat_relay = GpioLogic.basicRelay(17, "Thermostat")
+thermostat_relay = GpioLogic.basicRelay(11, "Thermostat")
+thermostat_relay.test()
+
 top_data = mid_data = btm_data = 0
 
 
@@ -351,9 +359,15 @@ class weatherIcon(object):
             each.hide()            
 
 def update_daily_weather():
+    # This is horrible.  It reloads the svg for each icon, and it does it whenever it's redraw
+    # Which used to be once an hour, but can now be whenever the main screen is redrawn.  This hold thing
+    # needs to be rewritten, but right now the layout relies on each icon being drawn before the sub-icons
+    # and I can't be bothered to fix it yet.
+    print "here"
+    print WEATHER_VISIBLE
     if False == WEATHER_VISIBLE: return
-    global wdict, outttext
-    wdict = []
+    global WDICT, outttext
+    WDICT = []
     icon_list = []
     try:
         x = METDATA.loc_forecast(weather_location, metoffer.DAILY)
@@ -375,21 +389,22 @@ def update_daily_weather():
     for each in weather.data:
         day = time.strftime('%a',each['timestamp'][0].timetuple())
         if each['timestamp'][1] == "Day":
-            wdict.append(weatherIcon(each['timestamp'][1],day,each['Weather Type'][0], each['Wind Speed'][0], each['Wind Direction'][0], each['Feels Like Day Maximum Temperature'][0], each['Precipitation Probability Day'][0], each['Max UV Index'][0],1,0.3))
+            WDICT.append(weatherIcon(each['timestamp'][1],day,each['Weather Type'][0], each['Wind Speed'][0], each['Wind Direction'][0], each['Feels Like Day Maximum Temperature'][0], each['Precipitation Probability Day'][0], each['Max UV Index'][0],1,0.3))
         elif each['timestamp'][1] == "Night":
-            wdict.append(weatherIcon(each['timestamp'][1],day,each['Weather Type'][0], each['Wind Speed'][0], each['Wind Direction'][0], each['Feels Like Night Minimum Temperature'][0], each['Precipitation Probability Night'][0],0,1,0.3))
+            WDICT.append(weatherIcon(each['timestamp'][1],day,each['Weather Type'][0], each['Wind Speed'][0], each['Wind Direction'][0], each['Feels Like Night Minimum Temperature'][0], each['Precipitation Probability Night'][0],0,1,0.3))
 
     x = 2
     first = True
     now = time.localtime().tm_hour
     if now > 17:
-        wdict = wdict[1:]
+        WDICT = WDICT[1:]
     blank_rect = pygame.Rect(0,0,screen_width, 80) # daily weather icons
     pygame.draw.rect(screen, BACKGROUND_COLOUR, blank_rect)
     blank_rect = pygame.Rect(0,80,160, 190) # current weather
     pygame.draw.rect(screen, BACKGROUND_COLOUR, blank_rect)
     
-    for each in wdict[:8]:
+    for each in WDICT[:8]:
+        print "Doing a weather icon..."
         if first:
             first = False
             each.image = svg_image("icons/"+each.icon, 20, 80,2.5)
@@ -442,6 +457,79 @@ def update_daily_weather():
     if True == FAST_RENDERING:
       pygame.display.update(icon_list)
 
+def draw_daily_weather():
+    print "I am redrawing the weather now"
+    print datetime.datetime.now()
+    global WDICT, outttext
+    global WEATHER_VISIBLE
+    icon_list = []
+    if False == WEATHER_VISIBLE:  return
+    blank_rect = pygame.Rect(0,0,screen_width, 80) # daily weather icons
+    pygame.draw.rect(screen, BACKGROUND_COLOUR, blank_rect)
+    blank_rect = pygame.Rect(0,80,160, 190) # current weather
+    pygame.draw.rect(screen, BACKGROUND_COLOUR, blank_rect)
+    print "Fast:  %s" % FAST_RENDERING   
+    for each in WDICT[:8]:
+      icon_list.append(each.draw(fast=FAST_RENDERING))
+    icon_list.append(outttext.draw(fast=FAST_RENDERING))
+    pygame.display.update(icon_list)
+    print "done"
+    print datetime.datetime.now()
+      
+#        print "Doing a weather icon..."
+#        if first:
+#            first = False
+#            each.image = svg_image("icons/"+each.icon, 20, 80,2.5)
+#            icon_list.append(each.image.draw(fast=FAST_RENDERING))
+#            each.subicons = []
+#            x = 5# outttext.rect.x
+#            y = 210# outttext.rect.top-15
+#            if each.pp > 60:
+#                each.pp_icon = svg_image("icons/Umbrella.svg",x,y,1)
+#                each.subicons.append(each.pp_icon)
+#            if each.windspeed > 25:
+#                each.wind_icon = svg_image("icons/Wind.svg",x,y,1)
+#                each.subicons.append(each.wind_icon)
+#            if each.temp < 5:
+#                each.ice_icon = svg_image("icons/Snowflake.svg",x,y,1)
+#                each.subicons.append(each.ice_icon)
+#            if each.uv > 5: #maybe 4 - http://www.metoffice.gov.uk/guide/weather/symbols#solar-uv-symbols
+#                each.shades = svg_image("icons/Shades.svg",x,y,1)
+#                each.subicons.append(each.shades)
+#            for thing in each.subicons:
+#                thing.x = x
+#                x += 55
+#                icon_list.append(thing.draw(fast=FAST_RENDERING))
+#            x = 2
+#        else:
+#            each.image.x = x
+#            icon_list.append(each.image.draw(fast=FAST_RENDERING))
+#            string = each.dow + ": "+str(each.temp)+u'\N{DEGREE SIGN}'
+#            each.text = TextArea(each.image.rect.centerx,each.image.rect.bottom+5,19,black,BACKGROUND_COLOUR,string)        
+#            each.subicons.append(each.text)
+#            n = x
+#            for thing in each.subicons:
+#                if thing.kind == "TEXT": pass
+#                else:
+#                    thing.x = n
+#                    thing.y = each.image.y + 65
+#                    n += 15
+#                icon_list.append(thing.draw(fast=FAST_RENDERING))
+#            # class TextArea:
+#            #init__(self, x,y,size,colour,bgcol=None,string="",font=default_fontstyle):
+#            x += 60
+#
+#    outtemp = get_outside_temp()
+#    outttext = TextArea(100, 243, 70, black, BACKGROUND_COLOUR, str(outtemp)+u'\N{DEGREE SIGN}')  
+#    if True == FAST_RENDERING:
+#        icon_list.append(outttext.draw(fast=FAST_RENDERING))      
+#    else:
+#        outttext.draw()
+#
+#    if True == FAST_RENDERING:
+#      pygame.display.update(icon_list)
+          
+
 current_map_time = None
 
 def update_sat_image():
@@ -484,7 +572,10 @@ def draw_sat_image():
     rect = screen.blit(SAT_IMAGE, (100,0))
     pygame.display.update(rect)
 
-    
+
+def show_camera():
+    while True:
+        camera.update(screen, (480, 320), (0,0)) 
         
     
     
@@ -801,7 +892,65 @@ class MenuScreen(object):
             each.hide()
         pygame.display.flip()
 
+class Camera:
+    def __init__(self, ip, username="admin", password="123456"):
+        self.ip = ip
+        self.username = username
+        self.password = password
+        self.base64string = base64.encodestring('%s:%s' % (username, password)).replace('\n','')
+    def connect(self):
+        request = urllib2.Request("http://"+self.ip+"/videostream.cgi")
+        request.add_header("Authorization", "Basic %s" % self.base64string)
+        self.stream = urllib2.urlopen(request)
+        #h = httplib.HTTP(self.ip)
+        #h.putrequest('GET','/videostream.cgi')
+        #h.putheader('Authorization', 'Basic %s' % self.base64string)
+        #h.endheaders()
+        #errcode, errmsg, headers = h.getreply()
+        #print errcode
+        #print errmsg
+        #print headers
+        #self.file = h.getfile()
+    def update(self, window, size, offset):
+        #data = self.file.readline()
+        bytes = ""
+        n = 0
+        while True:
+            bytes += self.stream.read(2048)
+            a = bytes.find('\xff\xd8') # Start JPG flag
+            b = bytes.find('\xff\xd9') # End JPG flag
+            if a!=-1 and b!=-1:
+                jpg = bytes[a:b+2]
+                bytes = bytes[b+2:]
+                n+=1
+                if n > 20: # Can't keep up with FPS, so drop everything by nth
+                    n = 0
+                    try:
+                        p = StringIO.StringIO(jpg)
+                        c = pygame.image.load(p).convert()
+                        c = pygame.transform.scale(c, size)
+                        p.close()
+                        window.blit(c, (0,0))
+                        pygame.display.flip()
+                    except:
+                        print "couldnt blit frame"
+                        #raise
+        #print data[0:15]
+        #if data[0:15] == 'Content-Length:':
+        #    count=int(data[16:])
+        #    s = self.file.read(count)
+        #    while s[0] != chr(0xff):
+        #        s = s[1:]
+        #    p = StringIO.StringIO(s)
+        #    try:
+        #        campanel = pygame.image.load(p).convert()
+        #        #campanel = pygame.transform.scale(campanel, size)
+        #        window.blit(campanel, offset)
+        #    except Exception, x:
+        #        print x
+        #    p.close()
 
+        
 ################################################################################
 ############         END OF IMAGE STUFF            #############################
 ################################################################################
@@ -840,7 +989,7 @@ def edit_stat_goal(state):
         temp_text.draw()
         uparrow.hide()
         downarrow.hide()
-        wdict[7].draw() # Redraw the stuff we've over written
+        WDICT[7].draw() # Redraw the stuff we've over written
  
 
 def on_click(click_pos):
@@ -852,7 +1001,8 @@ def on_click(click_pos):
                     each.pressed()
     	    except:
     	        log("Doesnt like being pressed: "+str(each))
-    	        pass
+    	        raise
+    	        #pass
         	        
 def update_hw():
     global top_data, mid_data, btm_data
@@ -870,7 +1020,7 @@ def update_hw():
     if mid_data <= 34:
         log("tank empty")
         hwc.dom.getElementsByTagName('linearGradient')[1].setAttribute('y1','-800')
-    elif btm_data > 46:
+    elif mid_data > 46:
         log("full tank")
         hwc.dom.getElementsByTagName('linearGradient')[1].setAttribute('y1','800')
     else:
@@ -888,7 +1038,7 @@ def update_hwchstatus():
       try:
         ch_resp = requests.get(url="http://piwarmer/get/ch")
         hw_resp = requests.get(url="http://piwarmer/get/hw")
-        #break
+        break
       except:
         log("Couldn't contact PiWarmer.  Trying again. #"+str(n)) # Need a function to handle these requests better, when a server has gone away etc, so we don't just crash
         pygame.time.wait(3000)
@@ -1032,10 +1182,12 @@ def clock_tick():
 
   
 def draw_home_screen():
+    global WEATHER_VISIBLE
     WEATHER_VISIBLE=True
     menu_screen.hide()
     hwc_screen.hide()
     home_screen.draw()
+    draw_daily_weather()
 
 
 def create_menu_screen():
@@ -1070,7 +1222,8 @@ def create_menu_screen():
     sat_img_butt = Rectangle(150,20,70,dk_grey)
     sat_img_butt.visible = True
     sat_img_butt.borders = True
-    sat_img_butt.add_action("clicked", draw_sat_image)
+    #sat_img_butt.add_action("clicked", draw_sa_image)
+    sat_img_butt.add_action("clicked", show_camera)
     menu_screen.add(sat_img_butt)
     
 
@@ -1125,14 +1278,16 @@ michael_fish.y = 65
 
 home_screen.draw()
 update_daily_weather()
-for each in wdict[:8]:
-  home_screen.add(each.image)
-  for x in each.subicons:
-    home_screen.add(x)
-home_screen.add(outttext)
+#for each in WDICT[:8]:
+#  home_screen.add(each.image)
+#  for x in each.subicons:
+#    home_screen.add(x)
+#home_screen.add(outttext)
 
 update_sat_image()
     
+camera = Camera('192.168.42.35', 'admin', '123456')
+camera.connect()
 
 
 # Create a once a minute tick for background updates to happen
@@ -1142,7 +1297,7 @@ pygame.time.set_timer(TICK15M, 900000)
 #pygame.time.set_timer(TICK15M, 6000)
 
 backlight_control=GpioLogic.backlight(18)
-tx_pwr = GpioLogic.txPower(22)
+tx_pwr = GpioLogic.txPower(15)
 signal.signal(signal.SIGINT, exit_handler)
 
 update_hw()

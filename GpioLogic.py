@@ -6,10 +6,12 @@
 import RPi.GPIO as GPIO
 from RPIO import PWM
 from subprocess import call
+from time import sleep
+
 
 CODE_LOOKUP = {'1':"0FFF", '2':"F0FF", '3':"FF0F", '4':"FFF0", 'on':"FF", 'off':"F0"}
 
-GPIO.setmode(GPIO.BCM)
+GPIO.setmode(GPIO.BOARD)
 #GPIO.setwarnings(False)
 
 DEBUG=True
@@ -40,7 +42,7 @@ class backlight(object):
             self.state = "off"
     def low(self):
         if self.state != "low":
-            PWM.add_channel_pulse(0,self.gpio, 0, 200)
+            PWM.add_channel_pulse(0,self.gpio, 0, 100)
             self.state = "low"
     def close_cleanly(self):
         PWM.clear_channel_gpio(0,self.gpio)
@@ -76,6 +78,11 @@ class basicRelay(object):
       self.on()
   def close_cleanly(self):
       GPIO.cleanup()
+  def test(self):
+      log("Testing relay...")
+      self.on()
+      sleep(0.5)
+      self.off()
 
 
 def get_room_temp(device):
