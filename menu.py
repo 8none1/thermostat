@@ -363,8 +363,6 @@ def update_daily_weather():
     # Which used to be once an hour, but can now be whenever the main screen is redrawn.  This hold thing
     # needs to be rewritten, but right now the layout relies on each icon being drawn before the sub-icons
     # and I can't be bothered to fix it yet.
-    print "here"
-    print WEATHER_VISIBLE
     if False == WEATHER_VISIBLE: return
     global WDICT, outttext
     WDICT = []
@@ -394,17 +392,18 @@ def update_daily_weather():
             WDICT.append(weatherIcon(each['timestamp'][1],day,each['Weather Type'][0], each['Wind Speed'][0], each['Wind Direction'][0], each['Feels Like Night Minimum Temperature'][0], each['Precipitation Probability Night'][0],0,1,0.3))
 
     x = 2
+    rl = []
     first = True
     now = time.localtime().tm_hour
     if now > 17:
         WDICT = WDICT[1:]
     blank_rect = pygame.Rect(0,0,screen_width, 80) # daily weather icons
-    pygame.draw.rect(screen, BACKGROUND_COLOUR, blank_rect)
+    rl.append(pygame.draw.rect(screen, BACKGROUND_COLOUR, blank_rect))
     blank_rect = pygame.Rect(0,80,160, 190) # current weather
-    pygame.draw.rect(screen, BACKGROUND_COLOUR, blank_rect)
+    rl.append(pygame.draw.rect(screen, BACKGROUND_COLOUR, blank_rect))
+    pygame.display.update(rl)
     
     for each in WDICT[:8]:
-        print "Doing a weather icon..."
         if first:
             first = False
             each.image = svg_image("icons/"+each.icon, 20, 80,2.5)
@@ -465,9 +464,9 @@ def draw_daily_weather():
     icon_list = []
     if False == WEATHER_VISIBLE:  return
     blank_rect = pygame.Rect(0,0,screen_width, 80) # daily weather icons
-    pygame.draw.rect(screen, BACKGROUND_COLOUR, blank_rect)
+    icon_list.append(pygame.draw.rect(screen, BACKGROUND_COLOUR, blank_rect))
     blank_rect = pygame.Rect(0,80,160, 190) # current weather
-    pygame.draw.rect(screen, BACKGROUND_COLOUR, blank_rect)
+    icon_list.append(pygame.draw.rect(screen, BACKGROUND_COLOUR, blank_rect))
     print "Fast:  %s" % FAST_RENDERING   
     for each in WDICT[:8]:
       icon_list.append(each.draw(fast=FAST_RENDERING))
@@ -476,59 +475,6 @@ def draw_daily_weather():
     print "done"
     print datetime.datetime.now()
       
-#        print "Doing a weather icon..."
-#        if first:
-#            first = False
-#            each.image = svg_image("icons/"+each.icon, 20, 80,2.5)
-#            icon_list.append(each.image.draw(fast=FAST_RENDERING))
-#            each.subicons = []
-#            x = 5# outttext.rect.x
-#            y = 210# outttext.rect.top-15
-#            if each.pp > 60:
-#                each.pp_icon = svg_image("icons/Umbrella.svg",x,y,1)
-#                each.subicons.append(each.pp_icon)
-#            if each.windspeed > 25:
-#                each.wind_icon = svg_image("icons/Wind.svg",x,y,1)
-#                each.subicons.append(each.wind_icon)
-#            if each.temp < 5:
-#                each.ice_icon = svg_image("icons/Snowflake.svg",x,y,1)
-#                each.subicons.append(each.ice_icon)
-#            if each.uv > 5: #maybe 4 - http://www.metoffice.gov.uk/guide/weather/symbols#solar-uv-symbols
-#                each.shades = svg_image("icons/Shades.svg",x,y,1)
-#                each.subicons.append(each.shades)
-#            for thing in each.subicons:
-#                thing.x = x
-#                x += 55
-#                icon_list.append(thing.draw(fast=FAST_RENDERING))
-#            x = 2
-#        else:
-#            each.image.x = x
-#            icon_list.append(each.image.draw(fast=FAST_RENDERING))
-#            string = each.dow + ": "+str(each.temp)+u'\N{DEGREE SIGN}'
-#            each.text = TextArea(each.image.rect.centerx,each.image.rect.bottom+5,19,black,BACKGROUND_COLOUR,string)        
-#            each.subicons.append(each.text)
-#            n = x
-#            for thing in each.subicons:
-#                if thing.kind == "TEXT": pass
-#                else:
-#                    thing.x = n
-#                    thing.y = each.image.y + 65
-#                    n += 15
-#                icon_list.append(thing.draw(fast=FAST_RENDERING))
-#            # class TextArea:
-#            #init__(self, x,y,size,colour,bgcol=None,string="",font=default_fontstyle):
-#            x += 60
-#
-#    outtemp = get_outside_temp()
-#    outttext = TextArea(100, 243, 70, black, BACKGROUND_COLOUR, str(outtemp)+u'\N{DEGREE SIGN}')  
-#    if True == FAST_RENDERING:
-#        icon_list.append(outttext.draw(fast=FAST_RENDERING))      
-#    else:
-#        outttext.draw()
-#
-#    if True == FAST_RENDERING:
-#      pygame.display.update(icon_list)
-          
 
 current_map_time = None
 
@@ -574,8 +520,12 @@ def draw_sat_image():
 
 
 def show_camera():
-    while True:
-        camera.update(screen, (480, 320), (0,0)) 
+    img = camera.single_frame()
+    if img is not None:
+        screen.blit(img, (0,0))
+        pygame.display.flip()
+    #while True:
+    #    camera.update(screen, (480, 320), (0,0)) 
         
     
     
@@ -902,20 +852,35 @@ class Camera:
         request = urllib2.Request("http://"+self.ip+"/videostream.cgi")
         request.add_header("Authorization", "Basic %s" % self.base64string)
         self.stream = urllib2.urlopen(request)
-        #h = httplib.HTTP(self.ip)
-        #h.putrequest('GET','/videostream.cgi')
-        #h.putheader('Authorization', 'Basic %s' % self.base64string)
-        #h.endheaders()
-        #errcode, errmsg, headers = h.getreply()
-        #print errcode
-        #print errmsg
-        #print headers
-        #self.file = h.getfile()
+    def single_frame(self):
+        # Connect to camera and return a pygame image for a single frame
+        request = urllib2.Request("http://"+self.ip+"/snapshot.cgi")
+        request.add_header("Authorization", "Basic %s" % self.base64string)
+        try:
+            snapshot = urllib2.urlopen(request)
+        except:
+            print "Can't load Camera page."
+            return None
+        page = snapshot.read()
+        a = page.find('\xff\xd8')
+        b = page.find('\xff\xd9')
+        if a!=-1 and b!=-1:
+            jpg = page[a:b+2]
+            p = StringIO.StringIO(jpg)
+            c = pygame.image.load(p).convert()
+            p.close()
+            c = pygame.transform.scale(c, (screen_width, screen_height))
+            return c
+        else:
+            print "Couldn't load JPG snapshot from data"
+            return None
+        
+        
     def update(self, window, size, offset):
-        #data = self.file.readline()
         bytes = ""
         n = 0
-        while True:
+        frame_done = False
+        while not frame_done:
             bytes += self.stream.read(2048)
             a = bytes.find('\xff\xd8') # Start JPG flag
             b = bytes.find('\xff\xd9') # End JPG flag
@@ -923,7 +888,7 @@ class Camera:
                 jpg = bytes[a:b+2]
                 bytes = bytes[b+2:]
                 n+=1
-                if n > 20: # Can't keep up with FPS, so drop everything by nth
+                if n > 20: # Can't keep up with FPS, so only act on nth frame
                     n = 0
                     try:
                         p = StringIO.StringIO(jpg)
@@ -935,20 +900,6 @@ class Camera:
                     except:
                         print "couldnt blit frame"
                         #raise
-        #print data[0:15]
-        #if data[0:15] == 'Content-Length:':
-        #    count=int(data[16:])
-        #    s = self.file.read(count)
-        #    while s[0] != chr(0xff):
-        #        s = s[1:]
-        #    p = StringIO.StringIO(s)
-        #    try:
-        #        campanel = pygame.image.load(p).convert()
-        #        #campanel = pygame.transform.scale(campanel, size)
-        #        window.blit(campanel, offset)
-        #    except Exception, x:
-        #        print x
-        #    p.close()
 
         
 ################################################################################
@@ -1287,7 +1238,7 @@ update_daily_weather()
 update_sat_image()
     
 camera = Camera('192.168.42.35', 'admin', '123456')
-camera.connect()
+#camera.connect()
 
 
 # Create a once a minute tick for background updates to happen
