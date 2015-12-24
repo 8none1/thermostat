@@ -9,6 +9,7 @@ I found that setting the framebuffer_width and height in /boot/config.txt correc
 
 Weather icons: http://www.alessioatzeni.com
 Back icon: Icon made by Freepik http://www.flaticon.com is licensed under http://creativecommons.org/licenses/by/3.0/
+Alarm icon: Icon made by Freepik http://www.flaticon.com is licensed under http://creativecommons.org/licenses/by/3.0/
 Other icons: http://typicons.com/
 
 

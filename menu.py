@@ -13,7 +13,7 @@ import Image
 from xml.dom import minidom
 import requests
 import json
-import atexit
+#import atexit
 import re
 import signal
 import traceback
@@ -27,11 +27,18 @@ import httplib
 import base64
 import StringIO
 
+from BaseHTTPServer import BaseHTTPRequestHandler,HTTPServer
+from SocketServer import ThreadingMixIn
+import threading
+import json
+
 
 
 DEBUG = True
 TESTING = True
 FAST_RENDERING = True # Quick tests show that fast isn't faster
+WEATHER_TESTING = False
+
 
 #  UPDATE:  Looks like a proper fix was merged on 2015-05-14 so this patch
 #  isn't needed anymore.  But you stil have to pull the version from Git and
@@ -309,16 +316,16 @@ class weatherIcon(object):
         self.pp = pp
         self.uv = uv
         self.subicons = []
-        if self.pp > 60:
+        if self.pp > 60 or WEATHER_TESTING:
             self.pp_icon = svg_image("icons/Umbrella.svg",0,0,self.subscale)
             self.subicons.append(self.pp_icon)
-        if self.windspeed > 25:
+        if self.windspeed > 20 or WEATHER_TESTING:
             self.wind_icon = svg_image("icons/Wind.svg",0,0,self.subscale)
             self.subicons.append(self.wind_icon)
-        if self.temp < 5:
+        if self.temp < 5 or WEATHER_TESTING:
             self.ice_icon = svg_image("icons/Snowflake.svg",0,0,self.subscale)
             self.subicons.append(self.ice_icon)
-        if self.uv > 5: #maybe 4 - http://www.metoffice.gov.uk/guide/weather/symbols#solar-uv-symbols
+        if self.uv > 5 or WEATHER_TESTING: #maybe 4 - http://www.metoffice.gov.uk/guide/weather/symbols#solar-uv-symbols
             self.shades = svg_image("icons/Shades.svg",0,0,self.subscale)
             self.subicons.append(self.shades)
         
@@ -359,11 +366,12 @@ class weatherIcon(object):
             each.hide()            
 
 def update_daily_weather():
-    # This is horrible.  It reloads the svg for each icon, and it does it whenever it's redraw
-    # Which used to be once an hour, but can now be whenever the main screen is redrawn.  This hold thing
-    # needs to be rewritten, but right now the layout relies on each icon being drawn before the sub-icons
-    # and I can't be bothered to fix it yet.
-    if False == WEATHER_VISIBLE: return
+    #  TODO:  Seperate the small icons along the top and the big one in the middle?
+    #  TODO: Should still be able to update the weather even if it's not on screen at the moment.
+    #  TODO:  Render sub-icons in to a single rectangle?  Would need to size dynamically.  Once all icons are rendered and the rect. is the correct size, centering it would be easier.
+    if False == WEATHER_VISIBLE:
+        print "Visible weather = False"
+        return
     global WDICT, outttext
     WDICT = []
     icon_list = []
@@ -385,12 +393,14 @@ def update_daily_weather():
     # NIGHT - "Precipitation Probabilty Night"[0] = int %
     #### (self,period, day,wtype, windspeed, winddir, temp, pp, uv=0, scale=1, subscale=1)
     for each in weather.data:
+        #print each
         day = time.strftime('%a',each['timestamp'][0].timetuple())
         if each['timestamp'][1] == "Day":
-            WDICT.append(weatherIcon(each['timestamp'][1],day,each['Weather Type'][0], each['Wind Speed'][0], each['Wind Direction'][0], each['Feels Like Day Maximum Temperature'][0], each['Precipitation Probability Day'][0], each['Max UV Index'][0],1,0.3))
+            WDICT.append(weatherIcon(each['timestamp'][1],day,each['Weather Type'][0], each['Wind Gust Noon'][0], each['Wind Direction'][0], each['Feels Like Day Maximum Temperature'][0], each['Precipitation Probability Day'][0], each['Max UV Index'][0],1,0.3))
+            #WDICT.append(weatherIcon(each['timestamp'][1],day,each['Weather Type'][0], each['Wind Speed'][0], each['Wind Direction'][0], each['Feels Like Day Maximum Temperature'][0], each['Precipitation Probability Day'][0], each['Max UV Index'][0],1,0.3))            
         elif each['timestamp'][1] == "Night":
-            WDICT.append(weatherIcon(each['timestamp'][1],day,each['Weather Type'][0], each['Wind Speed'][0], each['Wind Direction'][0], each['Feels Like Night Minimum Temperature'][0], each['Precipitation Probability Night'][0],0,1,0.3))
-
+            WDICT.append(weatherIcon(each['timestamp'][1],day,each['Weather Type'][0], each['Wind Gust Midnight'][0], each['Wind Direction'][0], each['Feels Like Night Minimum Temperature'][0], each['Precipitation Probability Night'][0],0,1,0.3))
+            #WDICT.append(weatherIcon(each['timestamp'][1],day,each['Weather Type'][0], each['Wind Speed'][0], each['Wind Direction'][0], each['Feels Like Night Minimum Temperature'][0], each['Precipitation Probability Night'][0],0,1,0.3))
     x = 2
     rl = []
     first = True
@@ -406,26 +416,26 @@ def update_daily_weather():
     for each in WDICT[:8]:
         if first:
             first = False
-            each.image = svg_image("icons/"+each.icon, 20, 80,2.5)
+            each.image = svg_image("icons/"+each.icon, 20, 65,2.5)
             icon_list.append(each.image.draw(fast=FAST_RENDERING))
             each.subicons = []
-            x = 5# outttext.rect.x
-            y = 210# outttext.rect.top-15
-            if each.pp > 60:
-                each.pp_icon = svg_image("icons/Umbrella.svg",x,y,1)
+            x = 20# outttext.rect.x
+            y = 190# outttext.rect.top-15
+            if each.pp > 60 or WEATHER_TESTING:
+                each.pp_icon = svg_image("icons/Umbrella.svg",x,y,0.5)
                 each.subicons.append(each.pp_icon)
-            if each.windspeed > 25:
-                each.wind_icon = svg_image("icons/Wind.svg",x,y,1)
+            if each.windspeed > 20 or WEATHER_TESTING:
+                each.wind_icon = svg_image("icons/Wind.svg",x,y,0.5)
                 each.subicons.append(each.wind_icon)
-            if each.temp < 5:
-                each.ice_icon = svg_image("icons/Snowflake.svg",x,y,1)
+            if each.temp < 5 or WEATHER_TESTING:
+                each.ice_icon = svg_image("icons/Snowflake.svg",x,y,0.5)
                 each.subicons.append(each.ice_icon)
-            if each.uv > 5: #maybe 4 - http://www.metoffice.gov.uk/guide/weather/symbols#solar-uv-symbols
-                each.shades = svg_image("icons/Shades.svg",x,y,1)
+            if each.uv > 5 or WEATHER_TESTING: #maybe 4 - http://www.metoffice.gov.uk/guide/weather/symbols#solar-uv-symbols
+                each.shades = svg_image("icons/Shades.svg",x,y,0.5)
                 each.subicons.append(each.shades)
             for thing in each.subicons:
                 thing.x = x
-                x += 55
+                x += 30
                 icon_list.append(thing.draw(fast=FAST_RENDERING))
             x = 2
         else:
@@ -906,6 +916,117 @@ class Camera:
 ############         END OF IMAGE STUFF            #############################
 ################################################################################
 
+
+################################################################################
+############         START OF REST API STUFF       #############################
+################################################################################
+
+
+
+class HTTPRequestHandler(BaseHTTPRequestHandler):
+    sys_version="0.00"
+    server_version="Thermostat Web Interface HTTP API Server/"
+    def send_headers(self,code):
+        BaseHTTPRequestHandler.send_response(self, code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        
+    def send_response(self, code=200, data=''):
+        self.send_headers(code)
+        if type(data) == dict:
+          data = json.dumps(data)
+        self.wfile.write(data)
+
+    def POST_set_target(self, target_temp):
+        if target_temp > 0 and target_temp < 26:
+            global MAIN_STAT_GOAL
+            log("Setting target temperature to: "+str(target_temp))
+            ## set the temp here.
+            MAIN_STAT_GOAL=target_temp
+            edit_stat_goal(True)
+            d = {"result": True}
+            return (200,d)
+        else:
+          d = {"result": False}
+          return (400,d)
+
+
+    def do_POST(self):
+        ## host:port/set/target/<int for temp>
+        request = self.path.split('/')
+        response_dict={}
+        if len(request) == 4 and request[1] == 'set' and request[2] == 'target':
+            code, d = self.POST_set_target(int(request[3]))
+        else:
+            print "ERROR: Couldn't match/deal with setting target temp via http server"        
+        self.send_response(code,d)
+        return
+        
+    def do_GET(self):
+        # <server>/get/target
+        request = self.path.split('/')
+        print request
+        if len(request) != 3:
+          raise Exception("fail.")
+        if request[1] == "get" and request[2] == "target":
+          global MAIN_STAT_GOAL
+          code = 200
+          response_dict = {"target":MAIN_STAT_GOAL}
+        elif request[1] == "get" and request[2] == "currentstate":
+          try:
+            ch_resp = requests.get(url="http://piwarmer/get/ch")
+            ch_data = json.loads(ch_resp.content)
+            code = 200
+            response_dict = ch_data['state'] 
+          except:tra
+            code = 400
+            response_dict = {"status":False}
+        elif request[1] == "get" and request[2] == "currenttemp":
+          global STAT_TEMPERATURE
+          code = 200
+          response_dict = {"currentTemp":STAT_TEMPERATURE}
+        else:
+          code = 400
+          response_dict = {"result":False}
+
+        self.send_response(code,response_dict)
+        return
+
+
+
+
+class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+  allow_reuse_address = True
+
+  def shutdown(self):
+    self.socket.close()
+    HTTPServer.shutdown(self)
+
+class SimpleHTTPServer():
+    def __init__(self, ip='0.0.0.0', port=8085):
+        self.server = ThreadedHTTPServer((ip,port), HTTPRequestHandler)
+ 
+    def start(self):
+        self.server_thread = threading.Thread(target=self.server.serve_forever)
+        self.server_thread.daemon = True
+        self.server_thread.start()
+ 
+    def waitForThread(self):
+        self.server_thread.join()
+ 
+    def stop(self):
+        self.server.shutdown()
+        self.waitForThread()
+
+
+################################################################################
+############         END OF REST API STUFF         #############################
+################################################################################
+
+
+
+
 def adjust_therm_temp(adjustment,text_object):
     global STAT_TEMPERATURE
     global MAIN_STAT_GOAL
@@ -968,15 +1089,23 @@ def update_hw():
     mid_data = tmb[1]['v']
     btm_data = tmb[2]['v']
     
-    if mid_data <= 34:
-        log("tank empty")
-        hwc.dom.getElementsByTagName('linearGradient')[1].setAttribute('y1','-800')
-    elif mid_data > 46:
-        log("full tank")
-        hwc.dom.getElementsByTagName('linearGradient')[1].setAttribute('y1','800')
-    else:
-        log("half tank")
-        hwc.dom.getElementsByTagName('linearGradient')[1].setAttribute('y1','400')
+    #if mid_data <= 36:
+    #    log("tank empty")
+    #    hwc.dom.getElementsByTagName('linearGradient')[1].setAttribute('y1','0') #-800
+    #elif mid_data > 42:
+    #    log("full tank")
+    #    hwc.dom.getElementsByTagName('linearGradient')[1].setAttribute('y1','800')
+    #else:
+    #    log("half tank")
+    #    hwc.dom.getElementsByTagName('linearGradient')[1].setAttribute('y1','400')where active=1
+    
+    print "Mid:  %s" % mid_data
+    floor_temp = mid_data - 32
+    print "Floor: %s" % floor_temp
+    ypos = str(floor_temp * 44)
+    print "YPOS: " + ypos
+    hwc.dom.getElementsByTagName('linearGradient')[1].setAttribute('y1',ypos)
+    
         
     hwc.update()
     if HWCONSCREEN:
@@ -1061,14 +1190,13 @@ hwc = svg_image('hwc_new.svg', 85, 20,1.2)
 
 def switch_control(icon, state, switchid=None):
     icon.hide()
-    print "Shell out to remote sockets and switch %s to %s" % (switchid, state)
+    print "Using remote sockets web service to switch %s to %s" % (switchid, state)
     if switchid == "lounge":
         if True == state:
-            bits = GpioLogic.build_bits("3","2","on")
+            hw_resp = requests.post("http://localhost:8081/set/socket/2/1/on")
+            hw_data = json.loads(hw_resp.content)
         else:
-            bits = GpioLogic.build_bits("3","2","off")
-    GpioLogic.send_code(tx_pwr, bits)
-  
+            hw_resp = requests.post("http://localhost:8081/set/socket/2/1/off")
     
 
 def restore_icon(icon):
@@ -1173,8 +1301,8 @@ def create_menu_screen():
     sat_img_butt = Rectangle(150,20,70,dk_grey)
     sat_img_butt.visible = True
     sat_img_butt.borders = True
-    #sat_img_butt.add_action("clicked", draw_sa_image)
-    sat_img_butt.add_action("clicked", show_camera)
+    sat_img_butt.add_action("clicked", draw_sat_image)
+    #sat_img_butt.add_action("clicked", show_camera)
     menu_screen.add(sat_img_butt)
     
 
@@ -1241,6 +1369,11 @@ camera = Camera('192.168.42.35', 'admin', '123456')
 #camera.connect()
 
 
+## Start Web Server
+server = SimpleHTTPServer()
+server.start()
+
+
 # Create a once a minute tick for background updates to happen
 pygame.time.set_timer(TICK1M, 60000)
 pygame.time.set_timer(TICK15M, 900000)
@@ -1281,6 +1414,7 @@ while 1:
             clock_tick()
             update_hwchstatus()
             old_temp = STAT_TEMPERATURE
+            #  Need to add support for different zones rather than just a single stat
             STAT_TEMPERATURE = GpioLogic.get_room_temp("28-00000558ff02")
             if STAT_TEMPERATURE == False or STAT_TEMPERATURE > 40 or STAT_TEMPERATURE < -10:
                 STAT_TEMPERATURE = old_temp
