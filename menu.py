@@ -979,7 +979,7 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
             ch_data = json.loads(ch_resp.content)
             code = 200
             response_dict = ch_data['state'] 
-          except:tra
+          except:
             code = 400
             response_dict = {"status":False}
         elif request[1] == "get" and request[2] == "currenttemp":
